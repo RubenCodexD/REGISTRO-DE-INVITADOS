@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>Registro de Invitados</title>
+
+    <link
+        rel="stylesheet"
+        href="style.css"
+    >
+
+    <!-- Excel -->
+    <script
+        src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js">
+    </script>
+
+    <!-- PDF -->
+    <script
+        src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js">
+    </script>
+
+    <!-- Tabla PDF -->
+    <script
+        src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js">
+    </script>
+
+</head>
+
+
+<body>
+
+<div class="app">
+
+    <!-- =========================
+         ENCABEZADO
+    ========================== -->
+
+    <header class="header">
+
+        <div>
+
+            <h1>
+                Registro de Invitados
+            </h1>
+
+            <p>
+                Control de invitados y regalos
+            </p>
+
+        </div>
+
+
+        <div class="database-status">
+
+            <span class="status-dot"></span>
+
+            <span>
+                Datos guardados automáticamente
+            </span>
+
+        </div>
+
+    </header>
+
+
+    <!-- =========================
+         FORMULARIO
+    ========================== -->
+
+    <section class="card">
+
+        <div class="section-title">
+
+            <h2>
+                Registrar invitado
+            </h2>
+
+            <p>
+                Los datos se guardan automáticamente.
+            </p>
+
+        </div>
+
+
+        <form id="registroForm">
+
+            <div class="form-grid">
+
+
+                <!-- NOMBRE -->
+
+                <div class="form-group">
+
+                    <label for="nombre">
+                        Nombre completo
+                    </label>
+
+                    <input
+                        type="text"
+                        id="nombre"
+                        placeholder="Ej. Juan Pérez"
+                        autocomplete="name"
+                        required
+                    >
+
+                </div>
+
+
+                <!-- REGALO -->
+
+                <div class="form-group">
+
+                    <label for="regalo">
+                        Tipo de regalo
+                    </label>
+
+                    <input
+                        type="text"
+                        id="regalo"
+                        placeholder="Ej. Licuadora, dinero, sobre..."
+                        required
+                    >
+
+                </div>
+
+
+                <!-- ESTADO -->
+
+                <div class="form-group">
+
+                    <label for="estado">
+                        Estado
+                    </label>
+
+                    <select
+                        id="estado"
+                        required
+                    >
+
+                        <option value="Nuevo">
+                            Nuevo
+                        </option>
+
+                        <option value="Cancelado">
+                            Cancelado
+                        </option>
+
+                    </select>
+
+                </div>
+
+
+            </div>
+
+
+            <!-- FECHA Y HORA -->
+
+            <div class="current-time">
+
+                <span>
+                    Fecha y hora:
+                </span>
+
+                <strong id="fechaHoraActual">
+                    --
+                </strong>
+
+            </div>
+
+
+            <button
+                type="submit"
+                class="btn btn-primary"
+            >
+
+                ✓ Registrar invitado
+
+            </button>
+
+        </form>
+
+    </section>
+
+
+    <!-- =========================
+         ESTADÍSTICAS
+    ========================== -->
+
+    <section class="stats">
+
+
+        <div class="stat">
+
+            <span>
+                Total
+            </span>
+
+            <strong id="total">
+                0
+            </strong>
+
+        </div>
+
+
+        <div class="stat stat-new">
+
+            <span>
+                Nuevos
+            </span>
+
+            <strong id="totalNuevos">
+                0
+            </strong>
+
+        </div>
+
+
+        <div class="stat stat-cancelled">
+
+            <span>
+                Cancelados
+            </span>
+
+            <strong id="totalCancelados">
+                0
+            </strong>
+
+        </div>
+
+
+    </section>
+
+
+    <!-- =========================
+         BÚSQUEDA
+    ========================== -->
+
+    <section class="card search-card">
+
+        <div class="search-box">
+
+            <input
+                type="search"
+                id="buscar"
+                placeholder="🔍 Buscar invitado..."
+            >
+
+            <button
+                type="button"
+                id="limpiarBusqueda"
+                class="btn btn-light"
+            >
+                Limpiar
+            </button>
+
+        </div>
+
+    </section>
+
+
+    <!-- =========================
+         TABLA
+    ========================== -->
+
+    <section class="card table-card">
+
+        <div class="table-header">
+
+            <div>
+
+                <h2>
+                    Invitados registrados
+                </h2>
+
+                <p>
+                    Los datos permanecen guardados aunque cierres
+                    la página.
+                </p>
+
+            </div>
+
+
+            <button
+                type="button"
+                id="actualizarBtn"
+                class="btn btn-light"
+            >
+
+                ↻ Actualizar
+
+            </button>
+
+        </div>
+
+
+        <div class="table-wrapper">
+
+            <table>
+
+                <thead>
+
+                    <tr>
+
+                        <th>
+                            #
+                        </th>
+
+                        <th>
+                            Nombre completo
+                        </th>
+
+                        <th>
+                            Tipo de regalo
+                        </th>
+
+                        <th>
+                            Estado
+                        </th>
+
+                        <th>
+                            Fecha
+                        </th>
+
+                        <th>
+                            Hora
+                        </th>
+
+                        <th>
+                            Acciones
+                        </th>
+
+                    </tr>
+
+                </thead>
+
+
+                <tbody id="tablaBody">
+
+                </tbody>
+
+            </table>
+
+
+            <div
+                id="emptyState"
+                class="empty-state"
+            >
+
+                <div class="empty-icon">
+                    📋
+                </div>
+
+                <h3>
+                    No hay registros
+                </h3>
+
+                <p>
+                    Registra el primer invitado.
+                </p>
+
+            </div>
+
+        </div>
+
+    </section>
+
+
+    <!-- =========================
+         EXPORTAR
+    ========================== -->
+
+    <section class="card finish-card">
+
+        <div>
+
+            <h2>
+                Finalizar fiesta
+            </h2>
+
+            <p>
+                Puedes generar una copia de todos los registros.
+            </p>
+
+        </div>
+
+
+        <div class="export-buttons">
+
+            <button
+                type="button"
+                id="excelBtn"
+                class="btn btn-excel"
+            >
+
+                📊 Exportar Excel
+
+            </button>
+
+
+            <button
+                type="button"
+                id="pdfBtn"
+                class="btn btn-pdf"
+            >
+
+                📄 Exportar PDF
+
+            </button>
+
+        </div>
+
+    </section>
+
+
+    <!-- =========================
+         BORRAR TODOS
+    ========================== -->
+
+    <section class="danger-zone">
+
+        <button
+            type="button"
+            id="borrarTodoBtn"
+            class="btn btn-danger"
+        >
+
+            🗑️ Borrar todos los registros
+
+        </button>
+
+    </section>
+
+
+    <footer>
+
+        Registro de Invitados
+
+    </footer>
+
+</div>
+
+
+<!-- =========================
+     MODAL EDITAR
+========================== -->
+
+<div
+    id="modal"
+    class="modal"
+>
+
+    <div class="modal-content">
+
+        <div class="modal-header">
+
+            <h2>
+                Editar invitado
+            </h2>
+
+            <button
+                type="button"
+                id="cerrarModal"
+                class="close-btn"
+            >
+                ×
+            </button>
+
+        </div>
+
+
+        <form id="editarForm">
+
+            <input
+                type="hidden"
+                id="editarId"
+            >
+
+
+            <div class="form-group">
+
+                <label>
+                    Nombre completo
+                </label>
+
+                <input
+                    type="text"
+                    id="editarNombre"
+                    required
+                >
+
+            </div>
+
+
+            <div class="form-group">
+
+                <label>
+                    Tipo de regalo
+                </label>
+
+                <input
+                    type="text"
+                    id="editarRegalo"
+                    required
+                >
+
+            </div>
+
+
+            <div class="form-group">
+
+                <label>
+                    Estado
+                </label>
+
+                <select
+                    id="editarEstado"
+                    required
+                >
+
+                    <option value="Nuevo">
+                        Nuevo
+                    </option>
+
+                    <option value="Cancelado">
+                        Cancelado
+                    </option>
+
+                </select>
+
+            </div>
+
+
+            <button
+                type="submit"
+                class="btn btn-primary"
+            >
+
+                Guardar cambios
+
+            </button>
+
+        </form>
+
+    </div>
+
+</div>
+
+
+<!-- TOAST -->
+
+<div
+    id="toast"
+    class="toast"
+>
+
+    <span id="toastMessage"></span>
+
+</div>
+
+
+<script src="script.js"></script>
+
+</body>
+
+</html>
