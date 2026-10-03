@@ -1,65 +1,135 @@
+// ==========================================================
+//  REGISTRO DE INVITADOS  ·  Supabase + Realtime
+// ==========================================================
+//
+//  Ahorro de consultas:
+//   - 1 SELECT al abrir la página (solo las columnas necesarias).
+//   - Insertar / editar / borrar actualizan la pantalla localmente
+//     con la respuesta de Supabase (sin volver a descargar la tabla).
+//   - Realtime (un solo canal) sincroniza los cambios de OTROS
+//     dispositivos.
+//   - Solo si Realtime se cae se hace una consulta de respaldo
+//     cada 60 segundos, y se detiene al reconectar.
+// ==========================================================
 
 const SUPABASE_URL = "https://peanftztnyfwirikxgsv.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_dHMDoQKSRW4LFNFhtZz_zg_qDe2yrvq";
 
-const SUPABASE_PUBLISHABLE_KEY =
-    "sb_publishable_dHMDoQKSRW4LFNFhtZz_zg_qDe2yrvq";
+const TABLA = "invitados";
+const COLUMNAS = "id, nombre, regalo, estado, created_at";
 
-const supabaseClient = window.supabase.createClient(
-    SUPABASE_URL,
-    SUPABASE_PUBLISHABLE_KEY
-);
+const MAX_REINTENTOS_INICIALES = 5;
+const INTERVALO_RESPALDO_MS = 60000;
+
+const $ = (id) => document.getElementById(id);
+
+
+// ===============================
+// CLIENTE SUPABASE
+// ===============================
+
+let supabaseClient = null;
+
+try {
+    supabaseClient = window.supabase.createClient(
+        SUPABASE_URL,
+        SUPABASE_PUBLISHABLE_KEY,
+        {
+            auth: { persistSession: false, autoRefreshToken: false },
+            realtime: { params: { eventsPerSecond: 5 } }
+        }
+    );
+} catch (error) {
+    console.error("No se pudo iniciar Supabase (¿se cargó la librería?):", error);
+}
+
+
+// ===============================
+// ESTADO
+// ===============================
 
 let invitados = [];
 let editandoId = null;
 let canalRealtime = null;
+let intentosIniciales = 0;
+let temporizadorReintento = null;
+let temporizadorRespaldo = null;
+let realtimeActivo = false;
+let yaSuscritoAntes = false;
 
 
 // ===============================
 // ELEMENTOS
 // ===============================
 
-const form = document.getElementById("formInvitado");
-const nombreInput = document.getElementById("nombre");
-const regaloInput = document.getElementById("regalo");
-const estadoInput = document.getElementById("estado");
-const tablaBody = document.getElementById("tablaInvitados");
-const buscador = document.getElementById("buscador");
+const el = {
+    form: $("guestForm"),
+    nombre: $("nombre"),
+    regalo: $("regalo"),
+    estado: $("estado"),
+    botonGuardar: $("saveButton"),
 
-const modal = document.getElementById("modalEditar");
-const editNombre = document.getElementById("editNombre");
-const editRegalo = document.getElementById("editRegalo");
-const editEstado = document.getElementById("editEstado");
+    tbody: $("guestTableBody"),
+    vacio: $("emptyState"),
+    buscador: $("searchInput"),
+    conteoBusqueda: $("searchCount"),
 
-const btnCancelarModal = document.getElementById("btnCancelarModal");
-const btnGuardarEdicion = document.getElementById("btnGuardarEdicion");
+    total: $("totalCount"),
+    nuevos: $("newCount"),
+    cancelados: $("cancelCount"),
 
-const btnExportExcel = document.getElementById("btnExportExcel");
-const btnExportPDF = document.getElementById("btnExportPDF");
-const btnEliminarTodos = document.getElementById("btnEliminarTodos");
+    conexion: $("connectionStatus"),
+    conexionTexto: $("connectionText"),
+    reloj: $("liveDateTime"),
 
-const totalElement = document.getElementById("totalInvitados");
-const nuevosElement = document.getElementById("totalNuevos");
-const canceladosElement = document.getElementById("totalCancelados");
+    modal: $("editModal"),
+    formEditar: $("editForm"),
+    editId: $("editId"),
+    editNombre: $("editNombre"),
+    editRegalo: $("editRegalo"),
+    editEstado: $("editEstado"),
+    botonGuardarEdicion: $("saveEdit"),
 
-const conexionElement = document.getElementById("estadoConexion");
-const conexionTexto = document.getElementById("textoConexion");
+    toast: $("toast"),
+    toastIcono: $("toastIcon"),
+    toastMensaje: $("toastMessage")
+};
+
+const ICONO_EDITAR =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg>';
+
+const ICONO_BORRAR =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>';
 
 
 // ===============================
 // INICIO
 // ===============================
 
-document.addEventListener("DOMContentLoaded", async () => {
+document.addEventListener("DOMContentLoaded", () => {
+
     configurarEventos();
+    iniciarReloj();
+    renderizarTabla();
+    actualizarEstadisticas();
 
-    // Solo aquí hacemos una descarga completa
-    // para cargar el estado inicial.
-    await cargarInvitadosInicial();
+    if (!supabaseClient) {
+        mostrarConexion("error", "No se cargó Supabase");
+        mostrarToast("No se pudo cargar la librería de Supabase. Revisa tu internet.", "error");
+        return;
+    }
 
-    // Después de esto, Realtime trabaja
-    // únicamente con INSERT / UPDATE / DELETE.
-    activarRealtime();
+    iniciarConexion();
 });
+
+async function iniciarConexion() {
+    const ok = await cargarInvitados();
+
+    // Realtime se activa aunque la carga falle: así puede recuperarse solo.
+    activarRealtime();
+
+    if (!ok) programarReintento();
+}
 
 
 // ===============================
@@ -68,316 +138,222 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 function configurarEventos() {
 
-    form?.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        await agregarInvitado();
+    el.form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        agregarInvitado();
     });
 
-    buscador?.addEventListener("input", renderizarTabla);
+    el.formEditar.addEventListener("submit", (e) => {
+        e.preventDefault();
+        guardarEdicion();
+    });
 
-    btnCancelarModal?.addEventListener("click", cerrarModal);
+    el.buscador.addEventListener("input", renderizarTabla);
 
-    btnGuardarEdicion?.addEventListener(
-        "click",
-        guardarEdicion
-    );
+    $("closeModal").addEventListener("click", cerrarModal);
+    $("cancelEdit").addEventListener("click", cerrarModal);
 
-    btnExportExcel?.addEventListener(
-        "click",
-        exportarExcel
-    );
+    el.modal.addEventListener("click", (e) => {
+        if (e.target === el.modal) cerrarModal();
+    });
 
-    btnExportPDF?.addEventListener(
-        "click",
-        exportarPDF
-    );
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && el.modal.classList.contains("open")) cerrarModal();
+    });
 
-    btnEliminarTodos?.addEventListener(
-        "click",
-        eliminarTodos
-    );
+    $("exportExcel").addEventListener("click", exportarExcel);
+    $("exportPDF").addEventListener("click", exportarPDF);
+    $("deleteAll").addEventListener("click", eliminarTodos);
 
-    modal?.addEventListener("click", (event) => {
+    // Botones de la tabla (delegación: funciona con ids numéricos o uuid)
+    el.tbody.addEventListener("click", (e) => {
+        const boton = e.target.closest("[data-accion]");
+        if (!boton) return;
 
-        if (event.target === modal) {
-            cerrarModal();
-        }
+        const id = boton.dataset.id;
 
+        if (boton.dataset.accion === "editar") abrirEdicion(id);
+        if (boton.dataset.accion === "eliminar") eliminarInvitado(id);
+    });
+
+    // Tocar el indicador de conexión fuerza un reintento
+    el.conexion.addEventListener("click", reintentarManual);
+
+    window.addEventListener("online", reintentarManual);
+
+    window.addEventListener("offline", () => {
+        mostrarConexion("error", "Sin conexión a internet");
     });
 }
 
 
 // ===============================
-// CARGA INICIAL
+// CARGA INICIAL (única consulta completa)
 // ===============================
 
-async function cargarInvitadosInicial() {
+async function cargarInvitados() {
 
-    mostrarConexion("conectando");
+    mostrarConexion("connecting");
 
-    const { data, error } =
-        await supabaseClient
-            .from("invitados")
-            .select("*")
-            .order("created_at", {
-                ascending: true
-            });
+    try {
+        const { data, error } = await supabaseClient
+            .from(TABLA)
+            .select(COLUMNAS)
+            .order("created_at", { ascending: true });
 
-    if (error) {
+        if (error) throw error;
 
-        console.error(
-            "Error cargando invitados:",
-            error
-        );
-
-        invitados = [];
-
-        mostrarConexion("error");
-
-        mostrarToast(
-            "No se pudieron cargar los registros",
-            "error"
-        );
+        invitados = data || [];
+        intentosIniciales = 0;
 
         renderizarTabla();
+        actualizarEstadisticas();
 
+        // Si Realtime ya está activo se verá "ok"; si no, se confirma al suscribirse.
+        if (realtimeActivo) mostrarConexion("ok");
+        else mostrarConexion("connecting", "Conectando en tiempo real...");
+
+        return true;
+
+    } catch (error) {
+        console.error("Error cargando invitados:", error);
+        mostrarConexion("error", "Error de conexión");
+
+        mostrarToast(describirError(error, "No se pudieron cargar los registros"), "error");
+
+        return false;
+    }
+}
+
+function programarReintento() {
+
+    clearTimeout(temporizadorReintento);
+
+    if (intentosIniciales >= MAX_REINTENTOS_INICIALES) {
+        mostrarConexion("error", "Sin conexión · toca para reintentar");
         return;
     }
 
-    invitados = data || [];
+    intentosIniciales++;
 
-    mostrarConexion("ok");
+    temporizadorReintento = setTimeout(async () => {
+        const ok = await cargarInvitados();
+        if (!ok) programarReintento();
+    }, 8000);
+}
 
-    renderizarTabla();
-    actualizarEstadisticas();
+async function reintentarManual() {
+
+    if (!supabaseClient) return;
+
+    clearTimeout(temporizadorReintento);
+    intentosIniciales = 0;
+
+    const ok = await cargarInvitados();
+
+    activarRealtime();
+
+    if (!ok) programarReintento();
 }
 
 
 // ===============================
-// REALTIME OPTIMIZADO
-// ===============================
-//
-// IMPORTANTE:
-//
-// Antes:
-//
-// INSERT
-//   ↓
-// SELECT * FROM invitados
-//   ↓
-// Descargar toda la tabla
-//
-// Ahora:
-//
-// INSERT
-//   ↓
-// Recibir solamente NEW
-//   ↓
-// Agregar una fila localmente
-//
-// UPDATE
-//   ↓
-// Recibir NEW
-//   ↓
-// Reemplazar solamente esa fila
-//
-// DELETE
-//   ↓
-// Recibir OLD
-//   ↓
-// Eliminar solamente esa fila
+// REALTIME (un solo canal)
 // ===============================
 
 function activarRealtime() {
 
     if (canalRealtime) {
-
-        supabaseClient.removeChannel(
-            canalRealtime
-        );
+        supabaseClient.removeChannel(canalRealtime);
+        canalRealtime = null;
     }
 
-    canalRealtime =
-        supabaseClient
-            .channel("invitados-tiempo-real")
+    canalRealtime = supabaseClient
+        .channel("invitados-tiempo-real")
+        .on(
+            "postgres_changes",
+            { event: "*", schema: "public", table: TABLA },
+            manejarCambioRealtime
+        )
+        .subscribe((status, error) => {
 
-            // ==========================
-            // NUEVO INVITADO
-            // ==========================
+            console.log("Estado Realtime:", status, error || "");
 
-            .on(
-                "postgres_changes",
-                {
-                    event: "INSERT",
-                    schema: "public",
-                    table: "invitados"
-                },
-                (payload) => {
+            if (status === "SUBSCRIBED") {
 
-                    console.log(
-                        "Realtime INSERT:",
-                        payload.new
-                    );
+                realtimeActivo = true;
+                detenerRespaldo();
+                mostrarConexion("ok");
 
-                    const existe =
-                        invitados.some(
-                            item =>
-                                item.id ===
-                                payload.new.id
-                        );
+                // Tras una RE-conexión, una sola consulta para no perder cambios.
+                if (yaSuscritoAntes) cargarInvitados();
+                yaSuscritoAntes = true;
 
-                    // Evitamos duplicar el registro.
-                    if (!existe) {
+                return;
+            }
 
-                        invitados.push(
-                            payload.new
-                        );
+            if (["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status)) {
 
-                        ordenarInvitados();
-                        renderizarTabla();
-                        actualizarEstadisticas();
-                    }
+                realtimeActivo = false;
+                mostrarConexion("error", "Reconectando...");
+                iniciarRespaldo();
+            }
+        });
+}
 
-                    mostrarConexion("ok");
-                }
-            )
+function manejarCambioRealtime(payload) {
 
-            // ==========================
-            // INVITADO MODIFICADO
-            // ==========================
+    const tipo = payload.eventType;
 
-            .on(
-                "postgres_changes",
-                {
-                    event: "UPDATE",
-                    schema: "public",
-                    table: "invitados"
-                },
-                (payload) => {
+    if (tipo === "INSERT" || tipo === "UPDATE") {
+        guardarLocal(payload.new);
+    }
 
-                    console.log(
-                        "Realtime UPDATE:",
-                        payload.new
-                    );
+    if (tipo === "DELETE") {
+        quitarLocal(payload.old?.id);
+    }
 
-                    const indice =
-                        invitados.findIndex(
-                            item =>
-                                item.id ===
-                                payload.new.id
-                        );
+    renderizarTabla();
+    actualizarEstadisticas();
+}
 
-                    if (indice !== -1) {
+// Respaldo: solo corre mientras Realtime está caído.
+function iniciarRespaldo() {
 
-                        // Reemplazamos únicamente
-                        // el registro modificado.
-                        invitados[indice] =
-                            payload.new;
+    if (temporizadorRespaldo) return;
 
-                    } else {
+    temporizadorRespaldo = setInterval(() => {
+        if (!realtimeActivo) cargarInvitados();
+    }, INTERVALO_RESPALDO_MS);
+}
 
-                        // Si por alguna razón el
-                        // registro no estaba cargado,
-                        // lo incorporamos.
-                        invitados.push(
-                            payload.new
-                        );
-                    }
-
-                    ordenarInvitados();
-                    renderizarTabla();
-                    actualizarEstadisticas();
-
-                    mostrarConexion("ok");
-                }
-            )
-
-            // ==========================
-            // INVITADO ELIMINADO
-            // ==========================
-
-            .on(
-                "postgres_changes",
-                {
-                    event: "DELETE",
-                    schema: "public",
-                    table: "invitados"
-                },
-                (payload) => {
-
-                    console.log(
-                        "Realtime DELETE:",
-                        payload.old
-                    );
-
-                    invitados =
-                        invitados.filter(
-                            item =>
-                                item.id !==
-                                payload.old.id
-                        );
-
-                    renderizarTabla();
-                    actualizarEstadisticas();
-
-                    mostrarConexion("ok");
-                }
-            )
-
-            .subscribe((status) => {
-
-                console.log(
-                    "Estado Realtime:",
-                    status
-                );
-
-                if (status === "SUBSCRIBED") {
-
-                    mostrarConexion("ok");
-
-                    console.log(
-                        "Realtime conectado correctamente"
-                    );
-                }
-
-                if (
-                    status === "CHANNEL_ERROR" ||
-                    status === "TIMED_OUT"
-                ) {
-
-                    mostrarConexion("error");
-
-                    console.error(
-                        "Error en conexión Realtime"
-                    );
-                }
-
-                if (
-                    status === "CLOSED"
-                ) {
-
-                    mostrarConexion("error");
-                }
-            });
+function detenerRespaldo() {
+    clearInterval(temporizadorRespaldo);
+    temporizadorRespaldo = null;
 }
 
 
 // ===============================
-// ORDENAR
+// DATOS LOCALES
 // ===============================
 
-function ordenarInvitados() {
+function guardarLocal(registro) {
 
-    invitados.sort((a, b) => {
+    if (!registro || registro.id === undefined) return;
 
-        const fechaA =
-            new Date(a.created_at).getTime();
+    const indice = invitados.findIndex((i) => String(i.id) === String(registro.id));
 
-        const fechaB =
-            new Date(b.created_at).getTime();
+    if (indice === -1) invitados.push(registro);
+    else invitados[indice] = { ...invitados[indice], ...registro };
 
-        return fechaA - fechaB;
-    });
+    invitados.sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    );
+}
+
+function quitarLocal(id) {
+    if (id === undefined || id === null) return;
+    invitados = invitados.filter((i) => String(i.id) !== String(id));
 }
 
 
@@ -387,109 +363,55 @@ function ordenarInvitados() {
 
 async function agregarInvitado() {
 
-    const nombre =
-        nombreInput.value.trim();
-
-    const regalo =
-        regaloInput.value.trim();
-
-    const estado =
-        estadoInput.value;
+    const nombre = el.nombre.value.trim();
+    const regalo = el.regalo.value.trim();
+    const estado = el.estado.value;
 
     if (!nombre) {
-
-        mostrarToast(
-            "Escribe el nombre completo",
-            "error"
-        );
-
-        nombreInput.focus();
-
+        mostrarToast("Escribe el nombre completo", "error");
+        el.nombre.focus();
         return;
     }
 
     if (!regalo) {
-
-        mostrarToast(
-            "Escribe el tipo de regalo",
-            "error"
-        );
-
-        regaloInput.focus();
-
+        mostrarToast("Escribe el obsequio", "error");
+        el.regalo.focus();
         return;
     }
 
-    const boton =
-        form.querySelector(
-            'button[type="submit"]'
-        );
-
-    if (boton) {
-
-        boton.disabled = true;
-
-        boton.dataset.textoOriginal =
-            boton.innerHTML;
-
-        boton.innerHTML =
-            "Guardando...";
+    if (!supabaseClient) {
+        mostrarToast("Sin conexión con la base de datos", "error");
+        return;
     }
 
-    const { data, error } =
-        await supabaseClient
-            .from("invitados")
-            .insert([
-                {
-                    nombre,
-                    regalo,
-                    estado
-                }
-            ])
-            .select()
+    bloquearBoton(el.botonGuardar, "Guardando...");
+
+    try {
+        const { data, error } = await supabaseClient
+            .from(TABLA)
+            .insert([{ nombre, regalo, estado }])
+            .select(COLUMNAS)
             .single();
 
-    if (error) {
+        if (error) throw error;
 
-        console.error(
-            "Error agregando invitado:",
-            error
-        );
+        // Se muestra al instante. Si Realtime envía el mismo registro, no se duplica.
+        guardarLocal(data);
+        renderizarTabla();
+        actualizarEstadisticas();
 
-        mostrarToast(
-            "No se pudo guardar el registro",
-            "error"
-        );
+        el.form.reset();
+        el.estado.value = "Nuevo";
+        el.nombre.focus();
 
-    } else {
+        mostrarToast("Invitado registrado", "success");
 
-        mostrarToast(
-            "Invitado registrado correctamente",
-            "success"
-        );
+    } catch (error) {
+        console.error("Error agregando invitado:", error);
+        mostrarToast(describirError(error, "No se pudo guardar el registro"), "error");
 
-        form.reset();
-
-        estadoInput.value = "Nuevo";
-
-        /*
-         * NO agregamos manualmente el registro
-         * a "invitados" aquí.
-         *
-         * Realtime recibirá el INSERT y lo
-         * incorporará automáticamente.
-         *
-         * Esto evita duplicados.
-         */
-    }
-
-    if (boton) {
-
-        boton.disabled = false;
-
-        boton.innerHTML =
-            boton.dataset.textoOriginal ||
-            "Registrar invitado";
+    } finally {
+        liberarBoton(el.botonGuardar);
     }
 }
 
@@ -500,141 +422,64 @@ async function agregarInvitado() {
 
 function renderizarTabla() {
 
-    if (!tablaBody) return;
+    const busqueda = el.buscador.value.toLowerCase().trim();
 
-    const busqueda =
-        (buscador?.value || "")
+    const filtrados = invitados.filter((i) =>
+        `${i.nombre || ""} ${i.regalo || ""} ${i.estado || ""}`
             .toLowerCase()
-            .trim();
+            .includes(busqueda)
+    );
 
-    const filtrados =
-        invitados.filter((invitado) => {
+    // Conteo de búsqueda
+    el.conteoBusqueda.textContent =
+        busqueda ? `${filtrados.length} de ${invitados.length}` : "";
 
-            const nombre =
-                String(
-                    invitado.nombre || ""
-                ).toLowerCase();
+    // Estado vacío
+    const sinRegistros = filtrados.length === 0;
+    el.vacio.classList.toggle("visible", sinRegistros);
 
-            const regalo =
-                String(
-                    invitado.regalo || ""
-                ).toLowerCase();
+    if (sinRegistros) {
+        const titulo = el.vacio.querySelector("h3");
+        const texto = el.vacio.querySelector("p");
 
-            const estado =
-                String(
-                    invitado.estado || ""
-                ).toLowerCase();
+        if (invitados.length === 0) {
+            titulo.textContent = "Aún no hay invitados";
+            texto.textContent = "Completa el formulario de arriba para registrar al primero.";
+        } else {
+            titulo.textContent = "Sin resultados";
+            texto.textContent = "Ningún invitado coincide con la búsqueda.";
+        }
 
-            return (
-                nombre.includes(busqueda) ||
-                regalo.includes(busqueda) ||
-                estado.includes(busqueda)
-            );
-        });
+        el.tbody.innerHTML = "";
+        return;
+    }
 
-    if (filtrados.length === 0) {
+    el.tbody.innerHTML = filtrados.map((invitado) => {
 
-        tablaBody.innerHTML = `
+        const numero = invitados.indexOf(invitado) + 1;
+        const estado = invitado.estado || "Nuevo";
+        const clase = estado === "Cancelado" ? "cancelado" : "nuevo";
+        const id = escaparHTML(invitado.id);
+
+        return `
             <tr>
-                <td colspan="6" class="tabla-vacia">
-                    <div class="empty-state">
-                        <div class="empty-icon">
-                            📋
-                        </div>
-
-                        <strong>
-                            No hay registros
-                        </strong>
-
-                        <span>
-                            Los invitados aparecerán aquí.
-                        </span>
+                <td class="col-num">${numero}</td>
+                <td class="cell-name">${escaparHTML(invitado.nombre)}</td>
+                <td>${escaparHTML(invitado.regalo)}</td>
+                <td><span class="badge ${clase}">${escaparHTML(estado)}</span></td>
+                <td class="cell-muted">${formatearFecha(invitado.created_at)}</td>
+                <td class="cell-muted">${formatearHora(invitado.created_at)}</td>
+                <td class="col-actions">
+                    <div class="row-actions">
+                        <button type="button" class="btn-icon" title="Editar"
+                            aria-label="Editar" data-accion="editar" data-id="${id}">${ICONO_EDITAR}</button>
+                        <button type="button" class="btn-icon danger" title="Eliminar"
+                            aria-label="Eliminar" data-accion="eliminar" data-id="${id}">${ICONO_BORRAR}</button>
                     </div>
                 </td>
             </tr>
         `;
-
-        return;
-    }
-
-    tablaBody.innerHTML =
-        filtrados
-            .map((invitado, index) => {
-
-                const fecha =
-                    formatearFecha(
-                        invitado.created_at
-                    );
-
-                const estado =
-                    invitado.estado ||
-                    "Nuevo";
-
-                const claseEstado =
-                    estado === "Cancelado"
-                        ? "cancelado"
-                        : "nuevo";
-
-                return `
-                    <tr
-                        class="fila-aparece"
-                        style="animation-delay:${index * 0.03}s"
-                    >
-
-                        <td>
-                            <strong>
-                                ${escaparHTML(
-                                    invitado.nombre
-                                )}
-                            </strong>
-                        </td>
-
-                        <td>
-                            ${escaparHTML(
-                                invitado.regalo
-                            )}
-                        </td>
-
-                        <td>
-                            ${fecha}
-                        </td>
-
-                        <td>
-                            <span
-                                class="badge-estado ${claseEstado}"
-                            >
-                                ${escaparHTML(
-                                    estado
-                                )}
-                            </span>
-                        </td>
-
-                        <td>
-                            <div class="acciones-tabla">
-
-                                <button
-                                    class="btn-icon editar"
-                                    title="Editar"
-                                    onclick="abrirEdicion(${invitado.id})"
-                                >
-                                    ✏️
-                                </button>
-
-                                <button
-                                    class="btn-icon eliminar"
-                                    title="Eliminar"
-                                    onclick="eliminarInvitado(${invitado.id})"
-                                >
-                                    🗑️
-                                </button>
-
-                            </div>
-                        </td>
-
-                    </tr>
-                `;
-            })
-            .join("");
+    }).join("");
 }
 
 
@@ -643,36 +488,9 @@ function renderizarTabla() {
 // ===============================
 
 function actualizarEstadisticas() {
-
-    const total =
-        invitados.length;
-
-    const nuevos =
-        invitados.filter(
-            item =>
-                item.estado === "Nuevo"
-        ).length;
-
-    const cancelados =
-        invitados.filter(
-            item =>
-                item.estado === "Cancelado"
-        ).length;
-
-    if (totalElement) {
-        totalElement.textContent =
-            total;
-    }
-
-    if (nuevosElement) {
-        nuevosElement.textContent =
-            nuevos;
-    }
-
-    if (canceladosElement) {
-        canceladosElement.textContent =
-            cancelados;
-    }
+    el.total.textContent = invitados.length;
+    el.nuevos.textContent = invitados.filter((i) => i.estado === "Nuevo").length;
+    el.cancelados.textContent = invitados.filter((i) => i.estado === "Cancelado").length;
 }
 
 
@@ -682,113 +500,69 @@ function actualizarEstadisticas() {
 
 function abrirEdicion(id) {
 
-    const invitado =
-        invitados.find(
-            item =>
-                item.id === id
-        );
-
+    const invitado = invitados.find((i) => String(i.id) === String(id));
     if (!invitado) return;
 
-    editandoId = id;
+    editandoId = invitado.id;
 
-    editNombre.value =
-        invitado.nombre || "";
+    el.editId.value = invitado.id;
+    el.editNombre.value = invitado.nombre || "";
+    el.editRegalo.value = invitado.regalo || "";
+    el.editEstado.value = invitado.estado || "Nuevo";
 
-    editRegalo.value =
-        invitado.regalo || "";
+    el.modal.classList.add("open");
+    el.modal.setAttribute("aria-hidden", "false");
+    document.body.classList.add("modal-open");
 
-    editEstado.value =
-        invitado.estado || "Nuevo";
-
-    modal.classList.add(
-        "mostrar"
-    );
-
-    document.body.classList.add(
-        "modal-abierto"
-    );
+    setTimeout(() => el.editNombre.focus(), 50);
 }
 
-
 function cerrarModal() {
-
-    modal.classList.remove(
-        "mostrar"
-    );
-
-    document.body.classList.remove(
-        "modal-abierto"
-    );
-
+    el.modal.classList.remove("open");
+    el.modal.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("modal-open");
     editandoId = null;
 }
 
-
 async function guardarEdicion() {
 
-    if (!editandoId) return;
+    if (editandoId === null) return;
 
-    const nombre =
-        editNombre.value.trim();
-
-    const regalo =
-        editRegalo.value.trim();
-
-    const estado =
-        editEstado.value;
+    const nombre = el.editNombre.value.trim();
+    const regalo = el.editRegalo.value.trim();
+    const estado = el.editEstado.value;
 
     if (!nombre || !regalo) {
-
-        mostrarToast(
-            "Completa todos los campos",
-            "error"
-        );
-
+        mostrarToast("Completa todos los campos", "error");
         return;
     }
 
-    const { error } =
-        await supabaseClient
-            .from("invitados")
-            .update({
-                nombre,
-                regalo,
-                estado
-            })
-            .eq(
-                "id",
-                editandoId
-            );
+    bloquearBoton(el.botonGuardarEdicion, "Guardando...");
 
-    if (error) {
+    try {
+        const { data, error } = await supabaseClient
+            .from(TABLA)
+            .update({ nombre, regalo, estado })
+            .eq("id", editandoId)
+            .select(COLUMNAS)
+            .single();
 
-        console.error(
-            "Error actualizando:",
-            error
-        );
+        if (error) throw error;
 
-        mostrarToast(
-            "No se pudo actualizar",
-            "error"
-        );
+        guardarLocal(data);
+        renderizarTabla();
+        actualizarEstadisticas();
 
-        return;
+        cerrarModal();
+        mostrarToast("Registro actualizado", "success");
+
+    } catch (error) {
+        console.error("Error actualizando:", error);
+        mostrarToast(describirError(error, "No se pudo actualizar"), "error");
+
+    } finally {
+        liberarBoton(el.botonGuardarEdicion);
     }
-
-    mostrarToast(
-        "Registro actualizado",
-        "success"
-    );
-
-    cerrarModal();
-
-    /*
-     * NO hacemos cargarInvitadosInicial().
-     *
-     * Realtime recibirá el UPDATE y modificará
-     * únicamente la fila correspondiente.
-     */
 }
 
 
@@ -798,110 +572,73 @@ async function guardarEdicion() {
 
 async function eliminarInvitado(id) {
 
-    const invitado =
-        invitados.find(
-            item =>
-                item.id === id
-        );
-
+    const invitado = invitados.find((i) => String(i.id) === String(id));
     if (!invitado) return;
 
-    const confirmar =
-        confirm(
-            `¿Eliminar el registro de "${invitado.nombre}"?`
-        );
+    if (!confirm(`¿Eliminar el registro de "${invitado.nombre}"?`)) return;
 
-    if (!confirmar) return;
-
-    const { error } =
-        await supabaseClient
-            .from("invitados")
+    try {
+        const { data, error } = await supabaseClient
+            .from(TABLA)
             .delete()
-            .eq("id", id);
+            .eq("id", invitado.id)
+            .select("id");
 
-    if (error) {
+        if (error) throw error;
 
-        console.error(
-            "Error eliminando:",
-            error
-        );
+        // Si no se borró nada, normalmente es una política (RLS) que lo impide.
+        if (!data || data.length === 0) {
+            throw new Error("Supabase no permitió borrar el registro (revisa las políticas RLS).");
+        }
 
-        mostrarToast(
-            "No se pudo eliminar",
-            "error"
-        );
+        quitarLocal(invitado.id);
+        renderizarTabla();
+        actualizarEstadisticas();
 
-        return;
+        mostrarToast("Registro eliminado", "success");
+
+    } catch (error) {
+        console.error("Error eliminando:", error);
+        mostrarToast(describirError(error, "No se pudo eliminar"), "error");
     }
-
-    mostrarToast(
-        "Registro eliminado",
-        "success"
-    );
-
-    /*
-     * Realtime recibirá DELETE y eliminará
-     * solamente esa fila del arreglo local.
-     */
 }
-
 
 async function eliminarTodos() {
 
     if (invitados.length === 0) {
-
-        mostrarToast(
-            "No hay registros para eliminar",
-            "error"
-        );
-
+        mostrarToast("No hay registros para eliminar", "error");
         return;
     }
 
-    const confirmar =
-        confirm(
-            "¿Seguro que quieres eliminar TODOS los registros? Esta acción no se puede deshacer."
-        );
+    const confirmar = confirm(
+        "¿Seguro que quieres eliminar TODOS los registros? Esta acción no se puede deshacer."
+    );
 
     if (!confirmar) return;
 
-    const { error } =
-        await supabaseClient
-            .from("invitados")
+    try {
+        const { data, error } = await supabaseClient
+            .from(TABLA)
             .delete()
-            .not(
-                "id",
-                "is",
-                null
-            );
+            .not("id", "is", null)
+            .select("id");
 
-    if (error) {
+        if (error) throw error;
 
-        console.error(
-            "Error eliminando todos:",
-            error
-        );
+        if (!data || data.length === 0) {
+            throw new Error("Supabase no permitió borrar los registros (revisa las políticas RLS).");
+        }
 
-        mostrarToast(
-            "No se pudieron eliminar los registros",
-            "error"
-        );
+        invitados = [];
+        renderizarTabla();
+        actualizarEstadisticas();
 
-        return;
+        mostrarToast("Todos los registros fueron eliminados", "success");
+
+    } catch (error) {
+        console.error("Error eliminando todos:", error);
+        mostrarToast(describirError(error, "No se pudieron eliminar los registros"), "error");
     }
-
-    mostrarToast(
-        "Todos los registros fueron eliminados",
-        "success"
-    );
-
-    /*
-     * Cada DELETE llegará por Realtime.
-     *
-     * Si hay muchos registros, esto genera
-     * eventos individuales, pero no descarga
-     * nuevamente toda la tabla.
-     */
 }
 
 
@@ -912,79 +649,36 @@ async function eliminarTodos() {
 function exportarExcel() {
 
     if (typeof XLSX === "undefined") {
-
-        mostrarToast(
-            "No se pudo cargar el módulo de Excel",
-            "error"
-        );
-
+        mostrarToast("No se pudo cargar el módulo de Excel", "error");
         return;
     }
 
     if (invitados.length === 0) {
-
-        mostrarToast(
-            "No hay registros para exportar",
-            "error"
-        );
-
+        mostrarToast("No hay registros para exportar", "error");
         return;
     }
 
-    const datos =
-        invitados.map(
-            (invitado, index) => ({
+    const datos = invitados.map((i, n) => ({
+        "N.º": n + 1,
+        "Nombre completo": i.nombre,
+        "Obsequio": i.regalo,
+        "Estado": i.estado,
+        "Fecha": formatearFecha(i.created_at),
+        "Hora": formatearHora(i.created_at)
+    }));
 
-                "#":
-                    index + 1,
-
-                "Nombre completo":
-                    invitado.nombre,
-
-                "Regalo":
-                    invitado.regalo,
-
-                "Fecha y hora":
-                    formatearFecha(
-                        invitado.created_at
-                    ),
-
-                "Estado":
-                    invitado.estado
-            })
-        );
-
-    const hoja =
-        XLSX.utils.json_to_sheet(
-            datos
-        );
+    const hoja = XLSX.utils.json_to_sheet(datos);
 
     hoja["!cols"] = [
-        { wch: 6 },
-        { wch: 30 },
-        { wch: 35 },
-        { wch: 24 },
-        { wch: 15 }
+        { wch: 6 }, { wch: 32 }, { wch: 32 },
+        { wch: 14 }, { wch: 14 }, { wch: 10 }
     ];
 
-    const libro =
-        XLSX.utils.book_new();
+    const libro = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(libro, hoja, "Invitados");
+    XLSX.writeFile(libro, "registro-invitados.xlsx");
 
-    XLSX.utils.book_append_sheet(
-        libro,
-        hoja,
-        "Invitados"
-    );
-
-    XLSX.writeFile(
-        libro,
-        "registro-invitados.xlsx"
-    );
-
-    mostrarToast(
-        "Excel descargado",
-        "success"
-    );
+    mostrarToast("Excel descargado", "success");
 }
 
 
@@ -995,292 +689,179 @@ function exportarExcel() {
 function exportarPDF() {
 
     if (!window.jspdf) {
-
-        mostrarToast(
-            "No se pudo cargar el módulo PDF",
-            "error"
-        );
-
+        mostrarToast("No se pudo cargar el módulo PDF", "error");
         return;
     }
 
     if (invitados.length === 0) {
-
-        mostrarToast(
-            "No hay registros para exportar",
-            "error"
-        );
-
+        mostrarToast("No hay registros para exportar", "error");
         return;
     }
 
-    const { jsPDF } =
-        window.jspdf;
+    const { jsPDF } = window.jspdf;
 
-    const pdf =
-        new jsPDF({
-            orientation: "landscape",
-            unit: "mm",
-            format: "a4"
-        });
+    const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
 
-    pdf.setFontSize(20);
+    pdf.setFont("times", "bold");
+    pdf.setFontSize(22);
+    pdf.setTextColor(30, 58, 52);
+    pdf.text("Registro de Invitados", 14, 18);
 
-    pdf.text(
-        "Registro de Invitados",
-        14,
-        18
-    );
-
+    pdf.setFont("helvetica", "normal");
     pdf.setFontSize(10);
+    pdf.setTextColor(100);
+
+    const nuevos = invitados.filter((i) => i.estado === "Nuevo").length;
+    const cancelados = invitados.filter((i) => i.estado === "Cancelado").length;
 
     pdf.text(
-        `Total: ${invitados.length}`,
-        14,
-        26
+        `Total: ${invitados.length}   ·   Nuevos: ${nuevos}   ·   Cancelados: ${cancelados}`,
+        14, 25
     );
-
-    const filas =
-        invitados.map(
-            (invitado, index) => [
-
-                index + 1,
-
-                invitado.nombre,
-
-                invitado.regalo,
-
-                formatearFecha(
-                    invitado.created_at
-                ),
-
-                invitado.estado
-            ]
-        );
 
     pdf.autoTable({
-
-        startY: 32,
-
-        head: [[
-            "#",
-            "Nombre",
-            "Regalo",
-            "Fecha y hora",
-            "Estado"
-        ]],
-
-        body: filas,
-
-        styles: {
-            fontSize: 9,
-            cellPadding: 3
-        },
-
-        headStyles: {
-            fontStyle: "bold"
-        }
+        startY: 31,
+        head: [["N.º", "Invitado", "Obsequio", "Estado", "Fecha", "Hora"]],
+        body: invitados.map((i, n) => [
+            n + 1, i.nombre, i.regalo, i.estado,
+            formatearFecha(i.created_at), formatearHora(i.created_at)
+        ]),
+        styles: { fontSize: 9, cellPadding: 3, textColor: [31, 41, 38] },
+        headStyles: { fillColor: [30, 58, 52], textColor: 255, fontStyle: "bold" },
+        alternateRowStyles: { fillColor: [244, 245, 241] },
+        columnStyles: { 0: { cellWidth: 14 } }
     });
 
-    pdf.save(
-        "registro-invitados.pdf"
-    );
+    pdf.save("registro-invitados.pdf");
 
-    mostrarToast(
-        "PDF descargado",
-        "success"
-    );
+    mostrarToast("PDF descargado", "success");
 }
 
 
 // ===============================
-// FECHA
+// FECHA Y HORA
 // ===============================
 
-function formatearFecha(fecha) {
+function formatearFecha(valor) {
+    const fecha = new Date(valor);
+    if (!valor || Number.isNaN(fecha.getTime())) return "—";
 
-    if (!fecha) {
-        return "—";
-    }
+    return fecha.toLocaleDateString("es-BO", {
+        day: "2-digit", month: "2-digit", year: "numeric"
+    });
+}
 
-    const date =
-        new Date(fecha);
+function formatearHora(valor) {
+    const fecha = new Date(valor);
+    if (!valor || Number.isNaN(fecha.getTime())) return "—";
 
-    if (
-        Number.isNaN(
-            date.getTime()
-        )
-    ) {
-        return "—";
-    }
+    return fecha.toLocaleTimeString("es-BO", {
+        hour: "2-digit", minute: "2-digit", hour12: false
+    });
+}
 
-    return new Intl.DateTimeFormat(
-        "es-ES",
-        {
-            dateStyle: "short",
-            timeStyle: "medium"
-        }
-    ).format(date);
+function iniciarReloj() {
+
+    const pintar = () => {
+        const ahora = new Date();
+
+        const fecha = ahora.toLocaleDateString("es-BO", {
+            weekday: "long", day: "numeric", month: "long", year: "numeric"
+        });
+
+        const hora = ahora.toLocaleTimeString("es-BO", {
+            hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
+        });
+
+        el.reloj.textContent = `${fecha} · ${hora}`;
+    };
+
+    pintar();
+    setInterval(pintar, 1000);
 }
 
 
 // ===============================
-// CONEXIÓN
+// INDICADOR DE CONEXIÓN
 // ===============================
 
-function mostrarConexion(estado) {
+function mostrarConexion(estado, texto) {
 
-    if (!conexionElement) return;
+    el.conexion.classList.remove("ok", "error", "connecting");
+    el.conexion.classList.add(estado);
 
-    conexionElement.classList.remove(
-        "conectando",
-        "error",
-        "ok"
-    );
+    const textos = {
+        ok: "Sincronizado en tiempo real",
+        error: "Problema de conexión",
+        connecting: "Conectando..."
+    };
 
-    if (estado === "ok") {
-
-        conexionElement.classList.add(
-            "ok"
-        );
-
-        if (conexionTexto) {
-
-            conexionTexto.textContent =
-                "Sincronizado en tiempo real";
-        }
-
-        return;
-    }
-
-    if (estado === "error") {
-
-        conexionElement.classList.add(
-            "error"
-        );
-
-        if (conexionTexto) {
-
-            conexionTexto.textContent =
-                "Problema de conexión";
-        }
-
-        return;
-    }
-
-    conexionElement.classList.add(
-        "conectando"
-    );
-
-    if (conexionTexto) {
-
-        conexionTexto.textContent =
-            "Conectando...";
-    }
+    el.conexionTexto.textContent = texto || textos[estado];
 }
 
 
 // ===============================
-// TOAST
+// AVISOS (TOAST)
 // ===============================
 
-function mostrarToast(
-    mensaje,
-    tipo = "success"
-) {
+let temporizadorToast = null;
 
-    let contenedor =
-        document.getElementById(
-            "contenedorToast"
-        );
+function mostrarToast(mensaje, tipo = "success") {
 
-    if (!contenedor) {
+    el.toast.classList.remove("success", "error", "show");
 
-        contenedor =
-            document.createElement(
-                "div"
-            );
+    // reinicia la animación si llega otro aviso seguido
+    void el.toast.offsetWidth;
 
-        contenedor.id =
-            "contenedorToast";
+    el.toastIcono.textContent = tipo === "success" ? "✓" : "!";
+    el.toastMensaje.textContent = mensaje;
 
-        document.body.appendChild(
-            contenedor
-        );
-    }
+    el.toast.classList.add(tipo, "show");
 
-    const toast =
-        document.createElement(
-            "div"
-        );
-
-    toast.className =
-        `toast toast-${tipo}`;
-
-    toast.innerHTML = `
-        <span class="toast-icon">
-            ${tipo === "success" ? "✓" : "!"}
-        </span>
-
-        <span>
-            ${escaparHTML(mensaje)}
-        </span>
-    `;
-
-    contenedor.appendChild(
-        toast
-    );
-
-    setTimeout(() => {
-
-        toast.classList.add(
-            "toast-saliendo"
-        );
-
-        setTimeout(() => {
-            toast.remove();
-        }, 300);
-
-    }, 2800);
+    clearTimeout(temporizadorToast);
+    temporizadorToast = setTimeout(() => el.toast.classList.remove("show"), 3500);
 }
 
 
 // ===============================
-// SEGURIDAD HTML
+// UTILIDADES
 // ===============================
+
+function bloquearBoton(boton, texto) {
+    boton.disabled = true;
+    boton.dataset.original = boton.innerHTML;
+    boton.textContent = texto;
+}
+
+function liberarBoton(boton) {
+    boton.disabled = false;
+    if (boton.dataset.original) boton.innerHTML = boton.dataset.original;
+}
+
+function describirError(error, mensajeBase) {
+
+    const detalle = String(error?.message || "");
+
+    if (/row-level security|rls|permission denied/i.test(detalle)) {
+        return `${mensajeBase}: permisos de Supabase (RLS)`;
+    }
+
+    if (/failed to fetch|networkerror|load failed/i.test(detalle)) {
+        return `${mensajeBase}: sin conexión con Supabase`;
+    }
+
+    if (/jwt|api key|apikey|invalid/i.test(detalle)) {
+        return `${mensajeBase}: revisa la clave de Supabase`;
+    }
+
+    return mensajeBase;
+}
 
 function escaparHTML(valor) {
-
     return String(valor ?? "")
-        .replace(
-            /&/g,
-            "&amp;"
-        )
-        .replace(
-            /</g,
-            "&lt;"
-        )
-        .replace(
-            />/g,
-            "&gt;"
-        )
-        .replace(
-            /"/g,
-            "&quot;"
-        )
-        .replace(
-            /'/g,
-            "&#039;"
-        );
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
 }
-
-
-// ===============================
-// FUNCIONES GLOBALES
-// ===============================
-
-window.abrirEdicion =
-    abrirEdicion;
-
-window.eliminarInvitado =
-    eliminarInvitado;
