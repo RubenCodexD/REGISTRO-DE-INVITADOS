@@ -1,106 +1,95 @@
-/* =====================================================
-   REGISTRO DE INVITADOS
-   BASE DE DATOS: INDEXEDDB
-===================================================== */
+/* =========================================================
+   CONFIGURACIÓN SUPABASE
+========================================================= */
+
+const SUPABASE_URL = "https://peanftztnyfwirikxgsv.supabase.co";
+
+const SUPABASE_PUBLISHABLE_KEY =
+    "sb_publishable_dHMDoQKSRW4LFNFhtZz_zg_qDe2yrvq";
 
 
-// =====================================================
-// CONFIGURACIÓN
-// =====================================================
+/* =========================================================
+   CLIENTE SUPABASE
+========================================================= */
 
-const DB_NAME = "RegistroInvitadosDB";
-
-const DB_VERSION = 1;
-
-const STORE_NAME = "invitados";
-
-let db;
-
-let registros = [];
+const supabaseClient = window.supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_PUBLISHABLE_KEY
+);
 
 
-// =====================================================
-// ELEMENTOS
-// =====================================================
+/* =========================================================
+   VARIABLES
+========================================================= */
 
-const formulario =
-    document.getElementById("registroForm");
+let invitados = [];
 
-const nombreInput =
-    document.getElementById("nombre");
+let editandoId = null;
 
-const regaloInput =
-    document.getElementById("regalo");
-
-const estadoInput =
-    document.getElementById("estado");
-
-const tablaBody =
-    document.getElementById("tablaBody");
-
-const emptyState =
-    document.getElementById("emptyState");
-
-const total =
-    document.getElementById("total");
-
-const totalNuevos =
-    document.getElementById("totalNuevos");
-
-const totalCancelados =
-    document.getElementById("totalCancelados");
-
-const buscar =
-    document.getElementById("buscar");
-
-const limpiarBusqueda =
-    document.getElementById("limpiarBusqueda");
-
-const actualizarBtn =
-    document.getElementById("actualizarBtn");
-
-const excelBtn =
-    document.getElementById("excelBtn");
-
-const pdfBtn =
-    document.getElementById("pdfBtn");
-
-const borrarTodoBtn =
-    document.getElementById("borrarTodoBtn");
-
-const fechaHoraActual =
-    document.getElementById("fechaHoraActual");
+let toastTimer = null;
 
 
-// =====================================================
-// MODAL
-// =====================================================
+/* =========================================================
+   ELEMENTOS
+========================================================= */
 
-const modal =
-    document.getElementById("modal");
+const guestForm = document.getElementById("guestForm");
 
-const cerrarModal =
-    document.getElementById("cerrarModal");
+const nombreInput = document.getElementById("nombre");
+const regaloInput = document.getElementById("regalo");
+const estadoInput = document.getElementById("estado");
 
-const editarForm =
-    document.getElementById("editarForm");
+const guestTableBody = document.getElementById("guestTableBody");
 
-const editarId =
-    document.getElementById("editarId");
+const emptyState = document.getElementById("emptyState");
 
-const editarNombre =
-    document.getElementById("editarNombre");
+const searchInput = document.getElementById("searchInput");
+const searchCount = document.getElementById("searchCount");
 
-const editarRegalo =
-    document.getElementById("editarRegalo");
+const totalCount = document.getElementById("totalCount");
+const newCount = document.getElementById("newCount");
+const cancelCount = document.getElementById("cancelCount");
 
-const editarEstado =
-    document.getElementById("editarEstado");
+const liveDateTime = document.getElementById("liveDateTime");
+
+const connectionStatus =
+    document.getElementById("connectionStatus");
+
+const connectionText =
+    document.getElementById("connectionText");
+
+const saveButton =
+    document.getElementById("saveButton");
 
 
-// =====================================================
-// TOAST
-// =====================================================
+/* MODAL */
+
+const editModal =
+    document.getElementById("editModal");
+
+const editForm =
+    document.getElementById("editForm");
+
+const editId =
+    document.getElementById("editId");
+
+const editNombre =
+    document.getElementById("editNombre");
+
+const editRegalo =
+    document.getElementById("editRegalo");
+
+const editEstado =
+    document.getElementById("editEstado");
+
+const closeModal =
+    document.getElementById("closeModal");
+
+const cancelEdit =
+    document.getElementById("cancelEdit");
+
+
+/* TOAST */
 
 const toast =
     document.getElementById("toast");
@@ -108,894 +97,465 @@ const toast =
 const toastMessage =
     document.getElementById("toastMessage");
 
-let toastTimer;
+const toastIcon =
+    document.getElementById("toastIcon");
 
 
-// =====================================================
-// INICIAR
-// =====================================================
+/* =========================================================
+   INICIO
+========================================================= */
 
-document.addEventListener(
-    "DOMContentLoaded",
-    iniciar
-);
-
-
-async function iniciar() {
-
-    await abrirBaseDatos();
-
-    await cargarRegistros();
+document.addEventListener("DOMContentLoaded", async () => {
 
     actualizarReloj();
 
-    setInterval(
-        actualizarReloj,
-        1000
+    setInterval(actualizarReloj, 1000);
+
+    configurarEventos();
+
+    await cargarInvitados();
+
+    iniciarRealtime();
+
+});
+
+
+/* =========================================================
+   RELOJ
+========================================================= */
+
+function actualizarReloj() {
+
+    const ahora = new Date();
+
+    const fecha = ahora.toLocaleDateString(
+        "es-ES",
+        {
+            weekday: "short",
+            day: "2-digit",
+            month: "short",
+            year: "numeric"
+        }
     );
 
+    const hora = ahora.toLocaleTimeString(
+        "es-ES",
+        {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit"
+        }
+    );
+
+    liveDateTime.textContent =
+        `${capitalizar(fecha)} · ${hora}`;
 }
 
 
-// =====================================================
-// ABRIR INDEXEDDB
-// =====================================================
+/* =========================================================
+   EVENTOS
+========================================================= */
 
-function abrirBaseDatos() {
+function configurarEventos() {
 
-    return new Promise(
-        (resolve, reject) => {
+    guestForm.addEventListener(
+        "submit",
+        registrarInvitado
+    );
 
-            const request =
-                indexedDB.open(
-                    DB_NAME,
-                    DB_VERSION
-                );
+    editForm.addEventListener(
+        "submit",
+        guardarEdicion
+    );
 
+    searchInput.addEventListener(
+        "input",
+        renderizarTabla
+    );
 
-            /*
-             * Se ejecuta solamente
-             * cuando la base de datos
-             * se crea por primera vez.
-             */
+    closeModal.addEventListener(
+        "click",
+        cerrarModal
+    );
 
-            request.onupgradeneeded =
-                function(event) {
+    cancelEdit.addEventListener(
+        "click",
+        cerrarModal
+    );
 
-                    const database =
-                        event.target.result;
+    editModal.addEventListener(
+        "click",
+        (event) => {
 
-
-                    if (
-                        !database.objectStoreNames.contains(
-                            STORE_NAME
-                        )
-                    ) {
-
-                        const store =
-                            database.createObjectStore(
-                                STORE_NAME,
-                                {
-                                    keyPath: "id",
-                                    autoIncrement: true
-                                }
-                            );
-
-
-                        store.createIndex(
-                            "nombre",
-                            "nombre",
-                            {
-                                unique: false
-                            }
-                        );
-
-
-                        store.createIndex(
-                            "estado",
-                            "estado",
-                            {
-                                unique: false
-                            }
-                        );
-
-                    }
-
-                };
-
-
-            request.onsuccess =
-                function(event) {
-
-                    db =
-                        event.target.result;
-
-                    resolve(db);
-
-                };
-
-
-            request.onerror =
-                function() {
-
-                    reject(
-                        request.error
-                    );
-
-                };
+            if (event.target === editModal) {
+                cerrarModal();
+            }
 
         }
     );
 
-}
+    document
+        .getElementById("exportExcel")
+        .addEventListener(
+            "click",
+            exportarExcel
+        );
 
+    document
+        .getElementById("exportPDF")
+        .addEventListener(
+            "click",
+            exportarPDF
+        );
 
-// =====================================================
-// CARGAR REGISTROS
-// =====================================================
+    document
+        .getElementById("deleteAll")
+        .addEventListener(
+            "click",
+            eliminarTodos
+        );
 
-function cargarRegistros() {
+    document.addEventListener(
+        "keydown",
+        (event) => {
 
-    return new Promise(
-        (resolve, reject) => {
-
-            const transaction =
-                db.transaction(
-                    STORE_NAME,
-                    "readonly"
-                );
-
-
-            const store =
-                transaction.objectStore(
-                    STORE_NAME
-                );
-
-
-            const request =
-                store.getAll();
-
-
-            request.onsuccess =
-                function() {
-
-                    registros =
-                        request.result
-                            .sort(
-                                (a, b) =>
-                                    a.id - b.id
-                            );
-
-
-                    actualizarInterfaz();
-
-                    resolve(
-                        registros
-                    );
-
-                };
-
-
-            request.onerror =
-                function() {
-
-                    reject(
-                        request.error
-                    );
-
-                };
+            if (
+                event.key === "Escape" &&
+                editModal.classList.contains("active")
+            ) {
+                cerrarModal();
+            }
 
         }
     );
-
 }
 
 
-// =====================================================
-// GUARDAR REGISTRO
-// =====================================================
+/* =========================================================
+   CARGAR INVITADOS
+========================================================= */
 
-function guardarRegistro(registro) {
+async function cargarInvitados() {
 
-    return new Promise(
-        (resolve, reject) => {
+    try {
 
-            const transaction =
-                db.transaction(
-                    STORE_NAME,
-                    "readwrite"
-                );
+        const {
+            data,
+            error
+        } = await supabaseClient
+            .from("invitados")
+            .select("*")
+            .order("created_at", {
+                ascending: true
+            });
 
-
-            const store =
-                transaction.objectStore(
-                    STORE_NAME
-                );
-
-
-            const request =
-                store.add(
-                    registro
-                );
-
-
-            request.onsuccess =
-                function(event) {
-
-                    registro.id =
-                        event.target.result;
-
-                    resolve(
-                        registro
-                    );
-
-                };
-
-
-            request.onerror =
-                function() {
-
-                    reject(
-                        request.error
-                    );
-
-                };
-
+        if (error) {
+            throw error;
         }
-    );
 
+        invitados = data || [];
+
+        actualizarInterfaz();
+
+        establecerConexion(true);
+
+    } catch (error) {
+
+        console.error(
+            "Error cargando invitados:",
+            error
+        );
+
+        establecerConexion(false);
+
+        mostrarToast(
+            "No se pudieron cargar los registros",
+            "error"
+        );
+    }
 }
 
 
-// =====================================================
-// ACTUALIZAR REGISTRO
-// =====================================================
+/* =========================================================
+   REALTIME
+========================================================= */
 
-function actualizarRegistro(registro) {
+function iniciarRealtime() {
 
-    return new Promise(
-        (resolve, reject) => {
+    supabaseClient
+        .channel("invitados-tiempo-real")
 
-            const transaction =
-                db.transaction(
-                    STORE_NAME,
-                    "readwrite"
+        .on(
+            "postgres_changes",
+            {
+                event: "*",
+                schema: "public",
+                table: "invitados"
+            },
+            async () => {
+
+                await cargarInvitados();
+
+                mostrarToast(
+                    "Registros sincronizados",
+                    "success"
                 );
+            }
+        )
 
+        .subscribe((status) => {
 
-            const store =
-                transaction.objectStore(
-                    STORE_NAME
-                );
-
-
-            const request =
-                store.put(
-                    registro
-                );
-
-
-            request.onsuccess =
-                function() {
-
-                    resolve(
-                        registro
-                    );
-
-                };
-
-
-            request.onerror =
-                function() {
-
-                    reject(
-                        request.error
-                    );
-
-                };
-
-        }
-    );
-
-}
-
-
-// =====================================================
-// ELIMINAR REGISTRO
-// =====================================================
-
-function eliminarDeDB(id) {
-
-    return new Promise(
-        (resolve, reject) => {
-
-            const transaction =
-                db.transaction(
-                    STORE_NAME,
-                    "readwrite"
-                );
-
-
-            const store =
-                transaction.objectStore(
-                    STORE_NAME
-                );
-
-
-            const request =
-                store.delete(id);
-
-
-            request.onsuccess =
-                function() {
-
-                    resolve();
-
-                };
-
-
-            request.onerror =
-                function() {
-
-                    reject(
-                        request.error
-                    );
-
-                };
-
-        }
-    );
-
-}
-
-
-// =====================================================
-// REGISTRAR INVITADO
-// =====================================================
-
-formulario.addEventListener(
-    "submit",
-    async function(event) {
-
-        event.preventDefault();
-
-
-        const nombre =
-            nombreInput.value.trim();
-
-
-        const regalo =
-            regaloInput.value.trim();
-
-
-        const estado =
-            estadoInput.value;
-
-
-        if (!nombre) {
-
-            mostrarMensaje(
-                "Escribe el nombre completo."
+            console.log(
+                "Realtime:",
+                status
             );
 
-            nombreInput.focus();
+            if (status === "SUBSCRIBED") {
 
-            return;
+                establecerConexion(true);
 
-        }
+            } else if (
+                status === "CHANNEL_ERROR" ||
+                status === "TIMED_OUT"
+            ) {
 
-
-        if (!regalo) {
-
-            mostrarMensaje(
-                "Escribe el tipo de regalo."
-            );
-
-            regaloInput.focus();
-
-            return;
-
-        }
+                establecerConexion(false);
+            }
+        });
+}
 
 
-        try {
+/* =========================================================
+   REGISTRAR
+========================================================= */
 
-            const ahora =
-                new Date();
+async function registrarInvitado(event) {
+
+    event.preventDefault();
+
+    const nombre =
+        nombreInput.value.trim();
+
+    const regalo =
+        regaloInput.value.trim();
+
+    const estado =
+        estadoInput.value;
 
 
-            const registro = {
+    if (!nombre || !regalo) {
 
-                nombre:
+        mostrarToast(
+            "Completa todos los campos",
+            "error"
+        );
+
+        return;
+    }
+
+
+    cambiarEstadoBoton(
+        true,
+        "Guardando..."
+    );
+
+
+    try {
+
+        const {
+            error
+        } = await supabaseClient
+            .from("invitados")
+            .insert([
+                {
                     nombre,
-
-                regalo:
                     regalo,
-
-                estado:
-                    estado,
-
-                fecha:
-                    formatearFecha(
-                        ahora
-                    ),
-
-                hora:
-                    formatearHora(
-                        ahora
-                    ),
-
-                fechaISO:
-                    ahora.toISOString()
-
-            };
+                    estado
+                }
+            ]);
 
 
-            /*
-             * AQUÍ SE GUARDA EN LA BASE DE DATOS.
-             *
-             * No depende del Excel.
-             * No depende de que la página
-             * permanezca abierta.
-             */
-
-            await guardarRegistro(
-                registro
-            );
-
-
-            await cargarRegistros();
-
-
-            formulario.reset();
-
-
-            estadoInput.value =
-                "Nuevo";
-
-
-            nombreInput.focus();
-
-
-            mostrarMensaje(
-                "✓ Invitado guardado correctamente."
-            );
-
-
-        } catch (error) {
-
-            console.error(error);
-
-
-            mostrarMensaje(
-                "No se pudo guardar el registro."
-            );
-
+        if (error) {
+            throw error;
         }
 
-    }
-);
 
+        guestForm.reset();
 
-// =====================================================
-// ACTUALIZAR INTERFAZ
-// =====================================================
+        estadoInput.value = "Nuevo";
 
-function actualizarInterfaz() {
-
-    actualizarEstadisticas();
-
-    mostrarTabla(
-        registros
-    );
-
-}
-
-
-// =====================================================
-// ESTADÍSTICAS
-// =====================================================
-
-function actualizarEstadisticas() {
-
-    const nuevos =
-        registros.filter(
-            registro =>
-                registro.estado === "Nuevo"
-        ).length;
-
-
-    const cancelados =
-        registros.filter(
-            registro =>
-                registro.estado === "Cancelado"
-        ).length;
-
-
-    total.textContent =
-        registros.length;
-
-
-    totalNuevos.textContent =
-        nuevos;
-
-
-    totalCancelados.textContent =
-        cancelados;
-
-}
-
-
-// =====================================================
-// MOSTRAR TABLA
-// =====================================================
-
-function mostrarTabla(lista) {
-
-    tablaBody.innerHTML = "";
-
-
-    if (lista.length === 0) {
-
-        emptyState.style.display =
-            "block";
-
-        return;
-
-    }
-
-
-    emptyState.style.display =
-        "none";
-
-
-    lista.forEach(
-        (registro, index) => {
-
-            const fila =
-                document.createElement(
-                    "tr"
-                );
-
-
-            const claseEstado =
-                registro.estado === "Nuevo"
-                    ? "estado-nuevo"
-                    : "estado-cancelado";
-
-
-            fila.innerHTML = `
-
-                <td>
-                    ${index + 1}
-                </td>
-
-                <td>
-                    ${escapeHTML(
-                        registro.nombre
-                    )}
-                </td>
-
-                <td>
-                    ${escapeHTML(
-                        registro.regalo
-                    )}
-                </td>
-
-                <td>
-
-                    <span
-                        class="estado ${claseEstado}"
-                    >
-
-                        ${registro.estado}
-
-                    </span>
-
-                </td>
-
-                <td>
-                    ${registro.fecha}
-                </td>
-
-                <td>
-                    ${registro.hora}
-                </td>
-
-                <td>
-
-                    <div class="actions">
-
-                        <button
-                            class="btn-small btn-edit"
-                            onclick="abrirEdicion(${registro.id})"
-                        >
-                            ✏️
-                        </button>
-
-                        <button
-                            class="btn-small btn-delete"
-                            onclick="eliminarRegistro(${registro.id})"
-                        >
-                            🗑️
-                        </button>
-
-                    </div>
-
-                </td>
-
-            `;
-
-
-            tablaBody.appendChild(
-                fila
-            );
-
-        }
-    );
-
-}
-
-
-// =====================================================
-// BÚSQUEDA
-// =====================================================
-
-buscar.addEventListener(
-    "input",
-    filtrarRegistros
-);
-
-
-function filtrarRegistros() {
-
-    const texto =
-        buscar.value
-            .trim()
-            .toLowerCase();
-
-
-    if (!texto) {
-
-        mostrarTabla(
-            registros
-        );
-
-        return;
-
-    }
-
-
-    const filtrados =
-        registros.filter(
-            registro =>
-
-                registro.nombre
-                    .toLowerCase()
-                    .includes(texto)
-
-                ||
-
-                registro.regalo
-                    .toLowerCase()
-                    .includes(texto)
-
-                ||
-
-                registro.estado
-                    .toLowerCase()
-                    .includes(texto)
-
+        mostrarToast(
+            "Invitado registrado correctamente",
+            "success"
         );
 
 
-    mostrarTabla(
-        filtrados
-    );
+        await cargarInvitados();
 
+
+    } catch (error) {
+
+        console.error(
+            "Error registrando:",
+            error
+        );
+
+        mostrarToast(
+            "No se pudo guardar el invitado",
+            "error"
+        );
+
+    } finally {
+
+        cambiarEstadoBoton(
+            false,
+            "Registrar invitado"
+        );
+    }
 }
 
 
-// =====================================================
-// LIMPIAR BÚSQUEDA
-// =====================================================
+/* =========================================================
+   EDITAR
+========================================================= */
 
-limpiarBusqueda.addEventListener(
-    "click",
-    function() {
+function abrirEditar(id) {
 
-        buscar.value = "";
-
-        mostrarTabla(
-            registros
-        );
-
-        buscar.focus();
-
-    }
-);
-
-
-// =====================================================
-// EDITAR
-// =====================================================
-
-async function abrirEdicion(id) {
-
-    const registro =
-        registros.find(
-            item =>
-                item.id === id
+    const invitado =
+        invitados.find(
+            item => Number(item.id) === Number(id)
         );
 
 
-    if (!registro) {
+    if (!invitado) {
         return;
     }
 
 
-    editarId.value =
-        registro.id;
+    editandoId = invitado.id;
+
+    editId.value =
+        invitado.id;
+
+    editNombre.value =
+        invitado.nombre;
+
+    editRegalo.value =
+        invitado.regalo;
+
+    editEstado.value =
+        invitado.estado;
 
 
-    editarNombre.value =
-        registro.nombre;
-
-
-    editarRegalo.value =
-        registro.regalo;
-
-
-    editarEstado.value =
-        registro.estado;
-
-
-    modal.classList.add(
-        "show"
+    editModal.classList.add(
+        "active"
     );
 
+
+    setTimeout(() => {
+        editNombre.focus();
+    }, 200);
 }
 
 
-editarForm.addEventListener(
-    "submit",
-    async function(event) {
+async function guardarEdicion(event) {
 
-        event.preventDefault();
+    event.preventDefault();
 
-
-        const id =
-            Number(
-                editarId.value
-            );
-
-
-        const registro =
-            registros.find(
-                item =>
-                    item.id === id
-            );
-
-
-        if (!registro) {
-            return;
-        }
-
-
-        registro.nombre =
-            editarNombre.value.trim();
-
-
-        registro.regalo =
-            editarRegalo.value.trim();
-
-
-        registro.estado =
-            editarEstado.value;
-
-
-        if (
-            !registro.nombre ||
-            !registro.regalo
-        ) {
-
-            mostrarMensaje(
-                "Completa todos los campos."
-            );
-
-            return;
-
-        }
-
-
-        try {
-
-            await actualizarRegistro(
-                registro
-            );
-
-
-            await cargarRegistros();
-
-
-            cerrarModal();
-
-
-            mostrarMensaje(
-                "✓ Registro actualizado."
-            );
-
-
-        } catch (error) {
-
-            console.error(error);
-
-            mostrarMensaje(
-                "No se pudo actualizar."
-            );
-
-        }
-
+    if (!editandoId) {
+        return;
     }
-);
 
 
-// =====================================================
-// CERRAR MODAL
-// =====================================================
+    const nombre =
+        editNombre.value.trim();
 
-cerrarModal.addEventListener(
-    "click",
-    cerrarModalEdicion
-);
+    const regalo =
+        editRegalo.value.trim();
+
+    const estado =
+        editEstado.value;
 
 
-modal.addEventListener(
-    "click",
-    function(event) {
+    if (!nombre || !regalo) {
 
-        if (
-            event.target === modal
-        ) {
+        mostrarToast(
+            "Completa todos los campos",
+            "error"
+        );
 
-            cerrarModalEdicion();
+        return;
+    }
 
+
+    try {
+
+        const {
+            error
+        } = await supabaseClient
+            .from("invitados")
+            .update({
+                nombre,
+                regalo,
+                estado
+            })
+            .eq(
+                "id",
+                editandoId
+            );
+
+
+        if (error) {
+            throw error;
         }
 
-    }
-);
 
+        cerrarModal();
 
-function cerrarModalEdicion() {
-
-    modal.classList.remove(
-        "show"
-    );
-
-}
-
-
-// =====================================================
-// ELIMINAR REGISTRO
-// =====================================================
-
-async function eliminarRegistro(id) {
-
-    const registro =
-        registros.find(
-            item =>
-                item.id === id
+        mostrarToast(
+            "Registro actualizado",
+            "success"
         );
 
 
-    if (!registro) {
+        await cargarInvitados();
+
+
+    } catch (error) {
+
+        console.error(
+            "Error actualizando:",
+            error
+        );
+
+        mostrarToast(
+            "No se pudo actualizar",
+            "error"
+        );
+    }
+}
+
+
+/* =========================================================
+   ELIMINAR
+========================================================= */
+
+async function eliminarInvitado(id) {
+
+    const invitado =
+        invitados.find(
+            item => Number(item.id) === Number(id)
+        );
+
+
+    if (!invitado) {
         return;
     }
 
 
     const confirmar =
         confirm(
-            `¿Eliminar a ${registro.nombre}?`
+            `¿Eliminar a "${invitado.nombre}"?`
         );
 
 
@@ -1006,211 +566,406 @@ async function eliminarRegistro(id) {
 
     try {
 
-        await eliminarDeDB(
-            id
+        const {
+            error
+        } = await supabaseClient
+            .from("invitados")
+            .delete()
+            .eq(
+                "id",
+                id
+            );
+
+
+        if (error) {
+            throw error;
+        }
+
+
+        mostrarToast(
+            "Registro eliminado",
+            "success"
         );
 
 
-        await cargarRegistros();
-
-
-        mostrarMensaje(
-            "Registro eliminado."
-        );
+        await cargarInvitados();
 
 
     } catch (error) {
 
-        console.error(error);
-
-        mostrarMensaje(
-            "No se pudo eliminar."
+        console.error(
+            "Error eliminando:",
+            error
         );
 
+        mostrarToast(
+            "No se pudo eliminar",
+            "error"
+        );
     }
-
 }
 
 
-// =====================================================
-// BORRAR TODO
-// =====================================================
+/* =========================================================
+   ELIMINAR TODO
+========================================================= */
 
-borrarTodoBtn.addEventListener(
-    "click",
-    async function() {
+async function eliminarTodos() {
 
-        if (
-            registros.length === 0
-        ) {
+    if (invitados.length === 0) {
 
-            mostrarMensaje(
-                "No hay registros."
-            );
-
-            return;
-
-        }
-
-
-        const confirmar =
-            confirm(
-                "¿Seguro que deseas eliminar TODOS los registros? Esta acción no se puede deshacer."
-            );
-
-
-        if (!confirmar) {
-            return;
-        }
-
-
-        try {
-
-            const transaction =
-                db.transaction(
-                    STORE_NAME,
-                    "readwrite"
-                );
-
-
-            const store =
-                transaction.objectStore(
-                    STORE_NAME
-                );
-
-
-            store.clear();
-
-
-            transaction.oncomplete =
-                async function() {
-
-                    registros = [];
-
-                    await cargarRegistros();
-
-                    mostrarMensaje(
-                        "Todos los registros fueron eliminados."
-                    );
-
-                };
-
-
-        } catch (error) {
-
-            console.error(error);
-
-            mostrarMensaje(
-                "No se pudieron eliminar los registros."
-            );
-
-        }
-
-    }
-);
-
-
-// =====================================================
-// ACTUALIZAR
-// =====================================================
-
-actualizarBtn.addEventListener(
-    "click",
-    async function() {
-
-        await cargarRegistros();
-
-        mostrarMensaje(
-            "Datos actualizados."
-        );
-
-    }
-);
-
-
-// =====================================================
-// EXPORTAR EXCEL
-// =====================================================
-
-excelBtn.addEventListener(
-    "click",
-    exportarExcel
-);
-
-
-function exportarExcel() {
-
-    if (
-        registros.length === 0
-    ) {
-
-        mostrarMensaje(
-            "No hay registros para exportar."
+        mostrarToast(
+            "No hay registros para eliminar",
+            "error"
         );
 
         return;
+    }
 
+
+    const confirmar =
+        confirm(
+            "¿Seguro que quieres eliminar TODOS los registros?\n\nEsta acción no se puede deshacer."
+        );
+
+
+    if (!confirmar) {
+        return;
+    }
+
+
+    try {
+
+        const {
+            error
+        } = await supabaseClient
+            .from("invitados")
+            .delete()
+            .not(
+                "id",
+                "is",
+                null
+            );
+
+
+        if (error) {
+            throw error;
+        }
+
+
+        mostrarToast(
+            "Todos los registros fueron eliminados",
+            "success"
+        );
+
+
+        await cargarInvitados();
+
+
+    } catch (error) {
+
+        console.error(
+            "Error eliminando todos:",
+            error
+        );
+
+        mostrarToast(
+            "No se pudieron eliminar los registros",
+            "error"
+        );
+    }
+}
+
+
+/* =========================================================
+   RENDER
+========================================================= */
+
+function actualizarInterfaz() {
+
+    actualizarEstadisticas();
+
+    renderizarTabla();
+}
+
+
+function actualizarEstadisticas() {
+
+    const total =
+        invitados.length;
+
+    const nuevos =
+        invitados.filter(
+            item => item.estado === "Nuevo"
+        ).length;
+
+    const cancelados =
+        invitados.filter(
+            item => item.estado === "Cancelado"
+        ).length;
+
+
+    animarNumero(
+        totalCount,
+        total
+    );
+
+    animarNumero(
+        newCount,
+        nuevos
+    );
+
+    animarNumero(
+        cancelCount,
+        cancelados
+    );
+}
+
+
+function renderizarTabla() {
+
+    const texto =
+        searchInput.value
+            .trim()
+            .toLowerCase();
+
+
+    const filtrados =
+        invitados.filter(item => {
+
+            if (!texto) {
+                return true;
+            }
+
+            return (
+                String(item.nombre || "")
+                    .toLowerCase()
+                    .includes(texto)
+                ||
+                String(item.regalo || "")
+                    .toLowerCase()
+                    .includes(texto)
+                ||
+                String(item.estado || "")
+                    .toLowerCase()
+                    .includes(texto)
+            );
+        });
+
+
+    guestTableBody.innerHTML = "";
+
+
+    searchCount.textContent =
+        texto
+            ? `${filtrados.length} resultado${filtrados.length !== 1 ? "s" : ""}`
+            : `${invitados.length} registro${invitados.length !== 1 ? "s" : ""}`;
+
+
+    if (filtrados.length === 0) {
+
+        emptyState.classList.add(
+            "visible"
+        );
+
+        return;
+    }
+
+
+    emptyState.classList.remove(
+        "visible"
+    );
+
+
+    filtrados.forEach(
+        (invitado, index) => {
+
+            const tr =
+                document.createElement("tr");
+
+
+            const fecha =
+                formatearFecha(
+                    invitado.created_at
+                );
+
+            const hora =
+                formatearHora(
+                    invitado.created_at
+                );
+
+
+            const estadoClase =
+                invitado.estado === "Nuevo"
+                    ? "new"
+                    : "cancelled";
+
+
+            tr.innerHTML = `
+                <td class="number-cell">
+                    ${index + 1}
+                </td>
+
+                <td class="name-cell">
+                    ${escaparHTML(invitado.nombre)}
+                </td>
+
+                <td class="gift-cell">
+                    ${escaparHTML(invitado.regalo)}
+                </td>
+
+                <td>
+                    <span class="status-badge ${estadoClase}">
+                        ${escaparHTML(invitado.estado)}
+                    </span>
+                </td>
+
+                <td>
+                    ${fecha}
+                </td>
+
+                <td>
+                    ${hora}
+                </td>
+
+                <td>
+                    <div class="actions">
+
+                        <button
+                            class="action-btn edit-btn"
+                            title="Editar"
+                            onclick="abrirEditar(${invitado.id})"
+                        >
+                            ✎
+                        </button>
+
+                        <button
+                            class="action-btn delete-btn"
+                            title="Eliminar"
+                            onclick="eliminarInvitado(${invitado.id})"
+                        >
+                            ×
+                        </button>
+
+                    </div>
+                </td>
+            `;
+
+
+            guestTableBody.appendChild(
+                tr
+            );
+        }
+    );
+}
+
+
+/* =========================================================
+   FECHAS
+========================================================= */
+
+function formatearFecha(fechaISO) {
+
+    if (!fechaISO) {
+        return "-";
+    }
+
+    const fecha =
+        new Date(fechaISO);
+
+
+    return fecha.toLocaleDateString(
+        "es-ES",
+        {
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric"
+        }
+    );
+}
+
+
+function formatearHora(fechaISO) {
+
+    if (!fechaISO) {
+        return "-";
+    }
+
+    const fecha =
+        new Date(fechaISO);
+
+
+    return fecha.toLocaleTimeString(
+        "es-ES",
+        {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit"
+        }
+    );
+}
+
+
+/* =========================================================
+   EXPORTAR EXCEL
+========================================================= */
+
+function exportarExcel() {
+
+    if (invitados.length === 0) {
+
+        mostrarToast(
+            "No hay registros para exportar",
+            "error"
+        );
+
+        return;
     }
 
 
     const datos =
-        registros.map(
-            (registro, index) => ({
+        invitados.map(
+            (item, index) => {
 
-                "#":
-                    index + 1,
+                return {
+                    "#": index + 1,
 
-                "Nombre completo":
-                    registro.nombre,
+                    "Nombre completo":
+                        item.nombre,
 
-                "Tipo de regalo":
-                    registro.regalo,
+                    "Tipo de regalo":
+                        item.regalo,
 
-                "Estado":
-                    registro.estado,
+                    "Estado":
+                        item.estado,
 
-                "Fecha":
-                    registro.fecha,
+                    "Fecha":
+                        formatearFecha(
+                            item.created_at
+                        ),
 
-                "Hora":
-                    registro.hora
-
-            })
+                    "Hora":
+                        formatearHora(
+                            item.created_at
+                        )
+                };
+            }
         );
 
 
-    const hoja =
+    const worksheet =
         XLSX.utils.json_to_sheet(
             datos
         );
 
 
-    hoja["!cols"] = [
-
-        {
-            wch: 7
-        },
-
-        {
-            wch: 35
-        },
-
-        {
-            wch: 35
-        },
-
-        {
-            wch: 15
-        },
-
-        {
-            wch: 15
-        },
-
-        {
-            wch: 15
-        }
-
+    worksheet["!cols"] = [
+        { wch: 7 },
+        { wch: 30 },
+        { wch: 30 },
+        { wch: 16 },
+        { wch: 15 },
+        { wch: 15 }
     ];
 
 
@@ -1220,64 +975,44 @@ function exportarExcel() {
 
     XLSX.utils.book_append_sheet(
         workbook,
-        hoja,
+        worksheet,
         "Invitados"
     );
 
 
     const fecha =
-        new Date();
-
-
-    const nombreArchivo =
-        `registro_invitados_${
-            fecha.getFullYear()
-        }-${
-            String(
-                fecha.getMonth() + 1
-            ).padStart(2, "0")
-        }-${
-            String(
-                fecha.getDate()
-            ).padStart(2, "0")
-        }.xlsx`;
+        new Date()
+            .toISOString()
+            .slice(0, 10);
 
 
     XLSX.writeFile(
         workbook,
-        nombreArchivo
+        `registro-invitados-${fecha}.xlsx`
     );
 
 
-    mostrarMensaje(
-        "✓ Excel exportado correctamente."
+    mostrarToast(
+        "Excel generado correctamente",
+        "success"
     );
-
 }
 
 
-// =====================================================
-// EXPORTAR PDF
-// =====================================================
-
-pdfBtn.addEventListener(
-    "click",
-    exportarPDF
-);
-
+/* =========================================================
+   EXPORTAR PDF
+========================================================= */
 
 function exportarPDF() {
 
-    if (
-        registros.length === 0
-    ) {
+    if (invitados.length === 0) {
 
-        mostrarMensaje(
-            "No hay registros para exportar."
+        mostrarToast(
+            "No hay registros para exportar",
+            "error"
         );
 
         return;
-
     }
 
 
@@ -1286,321 +1021,212 @@ function exportarPDF() {
     } = window.jspdf;
 
 
-    const pdf =
+    const doc =
         new jsPDF({
-
-            orientation:
-                "landscape",
-
-            unit:
-                "mm",
-
-            format:
-                "a4"
-
+            orientation: "landscape",
+            unit: "mm",
+            format: "a4"
         });
 
 
-    /*
-     * TÍTULO
-     */
-
-    pdf.setFontSize(
-        20
-    );
-
-
-    pdf.text(
-        "Registro de Invitados",
-        14,
-        15
-    );
-
-
-    pdf.setFontSize(
-        10
-    );
-
-
-    const nuevos =
-        registros.filter(
-            registro =>
-                registro.estado === "Nuevo"
-        ).length;
-
-
-    const cancelados =
-        registros.filter(
-            registro =>
-                registro.estado === "Cancelado"
-        ).length;
-
-
-    pdf.text(
-        `Total: ${registros.length} | Nuevos: ${nuevos} | Cancelados: ${cancelados}`,
-        14,
-        23
-    );
-
-
-    /*
-     * FILAS
-     */
-
-    const filas =
-        registros.map(
-            (registro, index) => [
-
-                index + 1,
-
-                registro.nombre,
-
-                registro.regalo,
-
-                registro.estado,
-
-                registro.fecha,
-
-                registro.hora
-
-            ]
+    const fechaActual =
+        new Date().toLocaleDateString(
+            "es-ES"
         );
 
 
-    /*
-     * TABLA
-     */
+    doc.setFontSize(20);
 
-    pdf.autoTable({
+    doc.text(
+        "Registro de Invitados",
+        14,
+        17
+    );
 
-        startY:
-            30,
 
-        head: [[
+    doc.setFontSize(9);
 
-            "#",
+    doc.setTextColor(
+        100,
+        116,
+        139
+    );
 
-            "Nombre completo",
+    doc.text(
+        `Generado el ${fechaActual}`,
+        14,
+        24
+    );
 
-            "Tipo de regalo",
 
-            "Estado",
+    const filas =
+        invitados.map(
+            (item, index) => {
 
-            "Fecha",
+                return [
+                    index + 1,
 
-            "Hora"
+                    item.nombre,
 
-        ]],
+                    item.regalo,
 
-        body:
-            filas,
+                    item.estado,
+
+                    formatearFecha(
+                        item.created_at
+                    ),
+
+                    formatearHora(
+                        item.created_at
+                    )
+                ];
+            }
+        );
+
+
+    doc.autoTable({
+        startY: 31,
+
+        head: [
+            [
+                "#",
+                "Nombre completo",
+                "Tipo de regalo",
+                "Estado",
+                "Fecha",
+                "Hora"
+            ]
+        ],
+
+        body: filas,
+
+        theme: "grid",
 
         styles: {
-
-            fontSize:
-                8,
-
-            cellPadding:
-                3
-
+            fontSize: 9,
+            cellPadding: 4
         },
 
         headStyles: {
-
-            fontSize:
-                8,
-
-            fontStyle:
-                "bold"
-
+            fontSize: 9,
+            fontStyle: "bold"
         },
 
-        margin: {
-
-            left:
-                10,
-
-            right:
-                10
-
+        alternateRowStyles: {
+            fillColor: [
+                248,
+                250,
+                252
+            ]
         }
-
     });
 
 
-    /*
-     * PIE
-     */
-
-    const ahora =
-        new Date();
+    const fecha =
+        new Date()
+            .toISOString()
+            .slice(0, 10);
 
 
-    pdf.setFontSize(
-        8
+    doc.save(
+        `registro-invitados-${fecha}.pdf`
     );
 
 
-    pdf.text(
+    mostrarToast(
+        "PDF generado correctamente",
+        "success"
+    );
+}
 
-        `Reporte generado: ${
-            formatearFecha(
-                ahora
-            )
-        } ${
-            formatearHora(
-                ahora
-            )
-        }`,
 
-        10,
+/* =========================================================
+   MODAL
+========================================================= */
 
-        200
+function cerrarModal() {
 
+    editModal.classList.remove(
+        "active"
     );
 
+    editandoId = null;
 
-    pdf.save(
-        "registro_invitados_final.pdf"
+    editForm.reset();
+}
+
+
+/* =========================================================
+   CONEXIÓN
+========================================================= */
+
+function establecerConexion(conectado) {
+
+    if (conectado) {
+
+        connectionStatus.classList.add(
+            "connected"
+        );
+
+        connectionStatus.classList.remove(
+            "error"
+        );
+
+        connectionText.textContent =
+            "Sincronizado en tiempo real";
+
+    } else {
+
+        connectionStatus.classList.remove(
+            "connected"
+        );
+
+        connectionStatus.classList.add(
+            "error"
+        );
+
+        connectionText.textContent =
+            "Problema de conexión";
+    }
+}
+
+
+/* =========================================================
+   TOAST
+========================================================= */
+
+function mostrarToast(
+    mensaje,
+    tipo = "success"
+) {
+
+    clearTimeout(
+        toastTimer
     );
 
-
-    mostrarMensaje(
-        "✓ PDF generado correctamente."
-    );
-
-}
-
-
-// =====================================================
-// RELOJ
-// =====================================================
-
-function actualizarReloj() {
-
-    const ahora =
-        new Date();
-
-
-    fechaHoraActual.textContent =
-        `${formatearFecha(
-            ahora
-        )} ${
-            formatearHora(
-                ahora
-            )}`;
-
-}
-
-
-// =====================================================
-// FECHA
-// =====================================================
-
-function formatearFecha(
-    fecha
-) {
-
-    const dia =
-        String(
-            fecha.getDate()
-        ).padStart(
-            2,
-            "0"
-        );
-
-
-    const mes =
-        String(
-            fecha.getMonth() + 1
-        ).padStart(
-            2,
-            "0"
-        );
-
-
-    const anio =
-        fecha.getFullYear();
-
-
-    return `${dia}/${mes}/${anio}`;
-
-}
-
-
-// =====================================================
-// HORA
-// =====================================================
-
-function formatearHora(
-    fecha
-) {
-
-    const horas =
-        String(
-            fecha.getHours()
-        ).padStart(
-            2,
-            "0"
-        );
-
-
-    const minutos =
-        String(
-            fecha.getMinutes()
-        ).padStart(
-            2,
-            "0"
-        );
-
-
-    const segundos =
-        String(
-            fecha.getSeconds()
-        ).padStart(
-            2,
-            "0"
-        );
-
-
-    return `${horas}:${minutos}:${segundos}`;
-
-}
-
-
-// =====================================================
-// SEGURIDAD
-// =====================================================
-
-function escapeHTML(
-    texto
-) {
-
-    const div =
-        document.createElement(
-            "div"
-        );
-
-
-    div.textContent =
-        texto;
-
-
-    return div.innerHTML;
-
-}
-
-
-// =====================================================
-// MENSAJES
-// =====================================================
-
-function mostrarMensaje(
-    mensaje
-) {
 
     toastMessage.textContent =
         mensaje;
+
+
+    if (tipo === "error") {
+
+        toast.classList.add(
+            "error"
+        );
+
+        toastIcon.textContent =
+            "×";
+
+    } else {
+
+        toast.classList.remove(
+            "error"
+        );
+
+        toastIcon.textContent =
+            "✓";
+    }
 
 
     toast.classList.add(
@@ -1608,14 +1234,9 @@ function mostrarMensaje(
     );
 
 
-    clearTimeout(
-        toastTimer
-    );
-
-
     toastTimer =
         setTimeout(
-            function() {
+            () => {
 
                 toast.classList.remove(
                     "show"
@@ -1624,5 +1245,148 @@ function mostrarMensaje(
             },
             3000
         );
-
 }
+
+
+/* =========================================================
+   BOTÓN
+========================================================= */
+
+function cambiarEstadoBoton(
+    cargando,
+    texto
+) {
+
+    saveButton.disabled =
+        cargando;
+
+
+    if (cargando) {
+
+        saveButton.innerHTML =
+            `
+                <span>⏳</span>
+                <span>${texto}</span>
+            `;
+
+    } else {
+
+        saveButton.innerHTML =
+            `
+                <span class="button-icon">＋</span>
+                <span>${texto}</span>
+            `;
+    }
+}
+
+
+/* =========================================================
+   ANIMACIÓN NÚMEROS
+========================================================= */
+
+function animarNumero(
+    elemento,
+    destino
+) {
+
+    const inicio =
+        Number(elemento.textContent) || 0;
+
+    const duracion =
+        350;
+
+    const inicioTiempo =
+        performance.now();
+
+
+    function actualizar(tiempo) {
+
+        const progreso =
+            Math.min(
+                (tiempo - inicioTiempo) /
+                duracion,
+                1
+            );
+
+
+        const valor =
+            Math.round(
+                inicio +
+                (destino - inicio) *
+                progreso
+            );
+
+
+        elemento.textContent =
+            valor;
+
+
+        if (progreso < 1) {
+
+            requestAnimationFrame(
+                actualizar
+            );
+        }
+    }
+
+
+    requestAnimationFrame(
+        actualizar
+    );
+}
+
+
+/* =========================================================
+   SEGURIDAD HTML
+========================================================= */
+
+function escaparHTML(valor) {
+
+    return String(valor ?? "")
+        .replace(
+            /&/g,
+            "&amp;"
+        )
+        .replace(
+            /</g,
+            "&lt;"
+        )
+        .replace(
+            />/g,
+            "&gt;"
+        )
+        .replace(
+            /"/g,
+            "&quot;"
+        )
+        .replace(
+            /'/g,
+            "&#039;"
+        );
+}
+
+
+/* =========================================================
+   MAYÚSCULA
+========================================================= */
+
+function capitalizar(texto) {
+
+    if (!texto) {
+        return "";
+    }
+
+    return texto.charAt(0).toUpperCase() +
+        texto.slice(1);
+}
+
+
+/* =========================================================
+   EXPONER FUNCIONES A HTML
+========================================================= */
+
+window.abrirEditar =
+    abrirEditar;
+
+window.eliminarInvitado =
+    eliminarInvitado;

@@ -1,573 +1,353 @@
 <!DOCTYPE html>
 <html lang="es">
-
 <head>
-
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0"
-    >
+    <meta name="theme-color" content="#0f172a">
+    <meta name="description" content="Registro de invitados">
 
     <title>Registro de Invitados</title>
 
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
         rel="stylesheet"
-        href="style.css"
     >
 
-    <!-- Excel -->
-    <script
-        src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js">
-    </script>
-
-    <!-- PDF -->
-    <script
-        src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js">
-    </script>
-
-    <!-- Tabla PDF -->
-    <script
-        src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js">
-    </script>
-
+    <link rel="stylesheet" href="styles.css">
 </head>
-
 
 <body>
 
-<div class="app">
+    <div class="background-decoration decoration-1"></div>
+    <div class="background-decoration decoration-2"></div>
 
-    <!-- =========================
-         ENCABEZADO
-    ========================== -->
+    <main class="app">
 
-    <header class="header">
+        <!-- HEADER -->
+        <header class="hero">
+            <div class="hero-content">
 
-        <div>
+                <div class="brand-icon">
+                    <span>✦</span>
+                </div>
 
-            <h1>
-                Registro de Invitados
-            </h1>
+                <div>
+                    <p class="eyebrow">EVENTO ESPECIAL</p>
+                    <h1>Registro de Invitados</h1>
+                    <p class="subtitle">
+                        Lleva el control de tus invitados y regalos en tiempo real.
+                    </p>
+                </div>
 
-            <p>
-                Control de invitados y regalos
-            </p>
+            </div>
 
-        </div>
-
-
-        <div class="database-status">
-
-            <span class="status-dot"></span>
-
-            <span>
-                Datos guardados automáticamente
-            </span>
-
-        </div>
-
-    </header>
+            <div class="connection-status" id="connectionStatus">
+                <span class="status-dot"></span>
+                <span id="connectionText">Conectando...</span>
+            </div>
+        </header>
 
 
-    <!-- =========================
-         FORMULARIO
-    ========================== -->
+        <!-- ESTADÍSTICAS -->
+        <section class="stats-grid">
 
-    <section class="card">
+            <article class="stat-card">
+                <div class="stat-icon total-icon">👥</div>
+                <div>
+                    <span class="stat-label">Total</span>
+                    <strong id="totalCount">0</strong>
+                </div>
+            </article>
 
-        <div class="section-title">
+            <article class="stat-card">
+                <div class="stat-icon new-icon">✓</div>
+                <div>
+                    <span class="stat-label">Nuevos</span>
+                    <strong id="newCount">0</strong>
+                </div>
+            </article>
 
-            <h2>
-                Registrar invitado
-            </h2>
+            <article class="stat-card">
+                <div class="stat-icon cancel-icon">×</div>
+                <div>
+                    <span class="stat-label">Cancelados</span>
+                    <strong id="cancelCount">0</strong>
+                </div>
+            </article>
 
-            <p>
-                Los datos se guardan automáticamente.
-            </p>
-
-        </div>
-
-
-        <form id="registroForm">
-
-            <div class="form-grid">
+        </section>
 
 
-                <!-- NOMBRE -->
+        <!-- FORMULARIO -->
+        <section class="panel form-panel">
 
-                <div class="form-group">
+            <div class="section-heading">
+                <div>
+                    <span class="section-kicker">NUEVO REGISTRO</span>
+                    <h2>Agregar invitado</h2>
+                </div>
 
-                    <label for="nombre">
-                        Nombre completo
-                    </label>
+                <div class="live-clock">
+                    <span class="clock-dot"></span>
+                    <span id="liveDateTime">--</span>
+                </div>
+            </div>
 
-                    <input
-                        type="text"
-                        id="nombre"
-                        placeholder="Ej. Juan Pérez"
-                        autocomplete="name"
-                        required
-                    >
+            <form id="guestForm">
+
+                <div class="form-grid">
+
+                    <div class="input-group">
+                        <label for="nombre">Nombre completo</label>
+
+                        <div class="input-wrapper">
+                            <span class="input-icon">👤</span>
+                            <input
+                                type="text"
+                                id="nombre"
+                                placeholder="Ej. Juan Pérez"
+                                autocomplete="name"
+                                required
+                            >
+                        </div>
+                    </div>
+
+
+                    <div class="input-group">
+                        <label for="regalo">Tipo de regalo</label>
+
+                        <div class="input-wrapper">
+                            <span class="input-icon">🎁</span>
+                            <input
+                                type="text"
+                                id="regalo"
+                                placeholder="Ej. Vino, flores, dinero..."
+                                required
+                            >
+                        </div>
+                    </div>
+
+
+                    <div class="input-group">
+                        <label for="estado">Estado</label>
+
+                        <div class="input-wrapper select-wrapper">
+                            <span class="input-icon">◉</span>
+
+                            <select id="estado">
+                                <option value="Nuevo">Nuevo</option>
+                                <option value="Cancelado">Cancelado</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-action">
+                        <button type="submit" class="btn btn-primary" id="saveButton">
+                            <span class="button-icon">＋</span>
+                            <span>Registrar invitado</span>
+                        </button>
+                    </div>
 
                 </div>
 
+            </form>
+        </section>
 
-                <!-- REGALO -->
 
-                <div class="form-group">
+        <!-- LISTADO -->
+        <section class="panel table-panel">
 
-                    <label for="regalo">
-                        Tipo de regalo
-                    </label>
+            <div class="section-heading table-heading">
 
-                    <input
-                        type="text"
-                        id="regalo"
-                        placeholder="Ej. Licuadora, dinero, sobre..."
-                        required
-                    >
-
+                <div>
+                    <span class="section-kicker">REGISTROS</span>
+                    <h2>Invitados registrados</h2>
                 </div>
 
+                <div class="table-actions">
 
-                <!-- ESTADO -->
+                    <button class="btn btn-secondary" id="exportExcel">
+                        <span>📊</span>
+                        Excel
+                    </button>
 
-                <div class="form-group">
+                    <button class="btn btn-secondary" id="exportPDF">
+                        <span>📄</span>
+                        PDF
+                    </button>
 
-                    <label for="estado">
-                        Estado
-                    </label>
-
-                    <select
-                        id="estado"
-                        required
-                    >
-
-                        <option value="Nuevo">
-                            Nuevo
-                        </option>
-
-                        <option value="Cancelado">
-                            Cancelado
-                        </option>
-
-                    </select>
+                    <button class="btn btn-danger-outline" id="deleteAll">
+                        <span>🗑</span>
+                        Borrar todo
+                    </button>
 
                 </div>
-
 
             </div>
 
 
-            <!-- FECHA Y HORA -->
+            <!-- BUSCADOR -->
+            <div class="search-container">
 
-            <div class="current-time">
-
-                <span>
-                    Fecha y hora:
-                </span>
-
-                <strong id="fechaHoraActual">
-                    --
-                </strong>
-
-            </div>
-
-
-            <button
-                type="submit"
-                class="btn btn-primary"
-            >
-
-                ✓ Registrar invitado
-
-            </button>
-
-        </form>
-
-    </section>
-
-
-    <!-- =========================
-         ESTADÍSTICAS
-    ========================== -->
-
-    <section class="stats">
-
-
-        <div class="stat">
-
-            <span>
-                Total
-            </span>
-
-            <strong id="total">
-                0
-            </strong>
-
-        </div>
-
-
-        <div class="stat stat-new">
-
-            <span>
-                Nuevos
-            </span>
-
-            <strong id="totalNuevos">
-                0
-            </strong>
-
-        </div>
-
-
-        <div class="stat stat-cancelled">
-
-            <span>
-                Cancelados
-            </span>
-
-            <strong id="totalCancelados">
-                0
-            </strong>
-
-        </div>
-
-
-    </section>
-
-
-    <!-- =========================
-         BÚSQUEDA
-    ========================== -->
-
-    <section class="card search-card">
-
-        <div class="search-box">
-
-            <input
-                type="search"
-                id="buscar"
-                placeholder="🔍 Buscar invitado..."
-            >
-
-            <button
-                type="button"
-                id="limpiarBusqueda"
-                class="btn btn-light"
-            >
-                Limpiar
-            </button>
-
-        </div>
-
-    </section>
-
-
-    <!-- =========================
-         TABLA
-    ========================== -->
-
-    <section class="card table-card">
-
-        <div class="table-header">
-
-            <div>
-
-                <h2>
-                    Invitados registrados
-                </h2>
-
-                <p>
-                    Los datos permanecen guardados aunque cierres
-                    la página.
-                </p>
-
-            </div>
-
-
-            <button
-                type="button"
-                id="actualizarBtn"
-                class="btn btn-light"
-            >
-
-                ↻ Actualizar
-
-            </button>
-
-        </div>
-
-
-        <div class="table-wrapper">
-
-            <table>
-
-                <thead>
-
-                    <tr>
-
-                        <th>
-                            #
-                        </th>
-
-                        <th>
-                            Nombre completo
-                        </th>
-
-                        <th>
-                            Tipo de regalo
-                        </th>
-
-                        <th>
-                            Estado
-                        </th>
-
-                        <th>
-                            Fecha
-                        </th>
-
-                        <th>
-                            Hora
-                        </th>
-
-                        <th>
-                            Acciones
-                        </th>
-
-                    </tr>
-
-                </thead>
-
-
-                <tbody id="tablaBody">
-
-                </tbody>
-
-            </table>
-
-
-            <div
-                id="emptyState"
-                class="empty-state"
-            >
-
-                <div class="empty-icon">
-                    📋
-                </div>
-
-                <h3>
-                    No hay registros
-                </h3>
-
-                <p>
-                    Registra el primer invitado.
-                </p>
-
-            </div>
-
-        </div>
-
-    </section>
-
-
-    <!-- =========================
-         EXPORTAR
-    ========================== -->
-
-    <section class="card finish-card">
-
-        <div>
-
-            <h2>
-                Finalizar fiesta
-            </h2>
-
-            <p>
-                Puedes generar una copia de todos los registros.
-            </p>
-
-        </div>
-
-
-        <div class="export-buttons">
-
-            <button
-                type="button"
-                id="excelBtn"
-                class="btn btn-excel"
-            >
-
-                📊 Exportar Excel
-
-            </button>
-
-
-            <button
-                type="button"
-                id="pdfBtn"
-                class="btn btn-pdf"
-            >
-
-                📄 Exportar PDF
-
-            </button>
-
-        </div>
-
-    </section>
-
-
-    <!-- =========================
-         BORRAR TODOS
-    ========================== -->
-
-    <section class="danger-zone">
-
-        <button
-            type="button"
-            id="borrarTodoBtn"
-            class="btn btn-danger"
-        >
-
-            🗑️ Borrar todos los registros
-
-        </button>
-
-    </section>
-
-
-    <footer>
-
-        Registro de Invitados
-
-    </footer>
-
-</div>
-
-
-<!-- =========================
-     MODAL EDITAR
-========================== -->
-
-<div
-    id="modal"
-    class="modal"
->
-
-    <div class="modal-content">
-
-        <div class="modal-header">
-
-            <h2>
-                Editar invitado
-            </h2>
-
-            <button
-                type="button"
-                id="cerrarModal"
-                class="close-btn"
-            >
-                ×
-            </button>
-
-        </div>
-
-
-        <form id="editarForm">
-
-            <input
-                type="hidden"
-                id="editarId"
-            >
-
-
-            <div class="form-group">
-
-                <label>
-                    Nombre completo
-                </label>
+                <span class="search-icon">⌕</span>
 
                 <input
-                    type="text"
-                    id="editarNombre"
-                    required
+                    type="search"
+                    id="searchInput"
+                    placeholder="Buscar por nombre, regalo o estado..."
                 >
+
+                <span class="search-count" id="searchCount"></span>
 
             </div>
 
 
-            <div class="form-group">
+            <!-- TABLA -->
+            <div class="table-container">
 
-                <label>
-                    Tipo de regalo
-                </label>
+                <table>
 
-                <input
-                    type="text"
-                    id="editarRegalo"
-                    required
-                >
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Invitado</th>
+                            <th>Regalo</th>
+                            <th>Estado</th>
+                            <th>Fecha</th>
+                            <th>Hora</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+
+                    <tbody id="guestTableBody"></tbody>
+
+                </table>
+
+
+                <!-- ESTADO VACÍO -->
+                <div class="empty-state" id="emptyState">
+
+                    <div class="empty-icon">✦</div>
+
+                    <h3>No hay invitados todavía</h3>
+
+                    <p>
+                        Agrega el primer invitado usando el formulario de arriba.
+                    </p>
+
+                </div>
 
             </div>
 
-
-            <div class="form-group">
-
-                <label>
-                    Estado
-                </label>
-
-                <select
-                    id="editarEstado"
-                    required
-                >
-
-                    <option value="Nuevo">
-                        Nuevo
-                    </option>
-
-                    <option value="Cancelado">
-                        Cancelado
-                    </option>
-
-                </select>
-
-            </div>
+        </section>
 
 
-            <button
-                type="submit"
-                class="btn btn-primary"
-            >
+        <footer>
+            <span>Registro de Invitados</span>
+            <span>•</span>
+            <span>Sincronización en tiempo real</span>
+        </footer>
 
-                Guardar cambios
+    </main>
 
-            </button>
 
-        </form>
+    <!-- MODAL EDITAR -->
+    <div class="modal-overlay" id="editModal">
+
+        <div class="modal">
+
+            <button class="modal-close" id="closeModal">×</button>
+
+            <div class="modal-icon">✎</div>
+
+            <p class="section-kicker">EDITAR REGISTRO</p>
+
+            <h2>Modificar invitado</h2>
+
+            <form id="editForm">
+
+                <input type="hidden" id="editId">
+
+                <div class="input-group">
+                    <label for="editNombre">Nombre completo</label>
+
+                    <div class="input-wrapper">
+                        <span class="input-icon">👤</span>
+                        <input type="text" id="editNombre" required>
+                    </div>
+                </div>
+
+
+                <div class="input-group">
+                    <label for="editRegalo">Tipo de regalo</label>
+
+                    <div class="input-wrapper">
+                        <span class="input-icon">🎁</span>
+                        <input type="text" id="editRegalo" required>
+                    </div>
+                </div>
+
+
+                <div class="input-group">
+                    <label for="editEstado">Estado</label>
+
+                    <div class="input-wrapper select-wrapper">
+                        <span class="input-icon">◉</span>
+
+                        <select id="editEstado">
+                            <option value="Nuevo">Nuevo</option>
+                            <option value="Cancelado">Cancelado</option>
+                        </select>
+                    </div>
+                </div>
+
+
+                <div class="modal-actions">
+
+                    <button
+                        type="button"
+                        class="btn btn-secondary"
+                        id="cancelEdit"
+                    >
+                        Cancelar
+                    </button>
+
+                    <button
+                        type="submit"
+                        class="btn btn-primary"
+                    >
+                        Guardar cambios
+                    </button>
+
+                </div>
+
+            </form>
+
+        </div>
 
     </div>
 
-</div>
+
+    <!-- TOAST -->
+    <div class="toast" id="toast">
+        <span class="toast-icon" id="toastIcon">✓</span>
+        <span id="toastMessage">Guardado correctamente</span>
+    </div>
 
 
-<!-- TOAST -->
+    <!-- LIBRERÍAS -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-<div
-    id="toast"
-    class="toast"
->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
-    <span id="toastMessage"></span>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 
-</div>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
 
-
-<script src="script.js"></script>
+    <script src="script.js"></script>
 
 </body>
-
 </html>
